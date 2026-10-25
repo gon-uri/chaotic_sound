@@ -52,7 +52,8 @@ class BuildSettings:
 
     sweep_points: int = 241
     sweep: AnalysisSettings = SWEEP_SETTINGS
-    table_points: int = 33
+    table_points: int = 129
+    """Uniform grid size; the default value is added as an extra node (exact default pitch)."""
     tables: AnalysisSettings = DEFAULT_SETTINGS
     lyapunov_threshold: float = 0.05
     """Minimum λ·P_ref (nats per period) to call a point chaotic."""
@@ -97,13 +98,14 @@ def choose_period_method(
     """How the system's characteristic period is measured (ADR 0010).
 
     Forced systems use the exact drive period. Otherwise, if the tuning observable's spectral
-    peak holds at least ``prominence_threshold`` of its power, P is the peak period; if not
-    (a broadband spectrum, e.g. Thomas), P is the mean return time between maxima.
+    peak holds at least ``prominence_threshold`` of its power, P is the period of the peak
+    centroid; if not (a broadband spectrum, e.g. Thomas), P is the mean return time between
+    maxima.
     """
     if system.drive_period() is not None:
         return "drive"
     if default_point.variables[observable].prominence >= prominence_threshold:
-        return "spectral_peak"
+        return "peak_centroid"
     return "return_time"
 
 
@@ -116,8 +118,8 @@ def point_period(
             raise ValueError("drive method needs a drive period")
         return drive_period
     stats = point.variables[variable]
-    if method == "spectral_peak":
-        return stats.peak_period
+    if method == "peak_centroid":
+        return stats.centroid_period
     if method == "return_time":
         return stats.return_time
     raise ValueError(f"unknown period method {method!r}")
@@ -207,42 +209,56 @@ def build_system(
     if not selection.hi > selection.lo:
         raise RuntimeError(f"{system.name}: the selected range is empty")
 
+    # The fine table pass can reveal problems the coarser sweep missed: an unsafe (drifting
+    # or unbounded) point, or a step in P(u) that pitch lock would turn into a glitch. Trim
+    # the range at the problem closest to the default on each side and recompute.
     lo, hi = selection.lo, selection.hi
     trims: list[str] = []
-    for _ in range(4):
-        u_grid = np.linspace(0.0, 1.0, settings.table_points)
+    for _ in range(8):
+        u_default = (system.default_value - lo) / (hi - lo)
+        u_grid = np.unique(np.append(np.linspace(0.0, 1.0, settings.table_points), u_default))
         p_grid = lo + u_grid * (hi - lo)
         table_results = sweep(system, p_grid, reference, settings.tables)
-        bad = [r.value for r in table_results if drift_of(r) > settings.tables.drift_threshold]
-        if bad:
-            raise RuntimeError(f"{system.name}: unsafe points inside the selected range: {bad}")
-        measured = np.array([period_of(r) for r in table_results])
-        curve, corrected = robust_period_curve(
-            measured, settings.period_median_window, settings.period_outlier_tolerance
-        )
-        steps = np.abs(np.diff(curve) / curve[:-1])
-        jumps = np.flatnonzero(steps > settings.max_period_jump)
-        if jumps.size == 0:
-            break
-        # Trim at the jumps closest to the default on each side, then recompute.
         i_def = int(np.argmin(np.abs(p_grid - system.default_value)))
-        above = [int(k) for k in jumps if k >= i_def]
-        below = [int(k) for k in jumps if k < i_def]
-        new_lo = float(p_grid[max(below) + 1]) if below else lo
-        new_hi = float(p_grid[min(above)]) if above else hi
-        trims.append(
-            f"P(u) step of {100 * steps.max():.0f}%: [{lo:.5g}, {hi:.5g}] → "
-            f"[{new_lo:.5g}, {new_hi:.5g}]"
-        )
+        unsafe = [
+            k for k, r in enumerate(table_results) if drift_of(r) > settings.tables.drift_threshold
+        ]
+        if i_def in unsafe:
+            raise RuntimeError(f"{system.name}: the default parameter itself is unsafe")
+        measured = np.array([period_of(r) if k not in unsafe else np.nan
+                             for k, r in enumerate(table_results)])  # fmt: skip
+        if unsafe:
+            # Keep strictly inside the unsafe points closest to the default.
+            keep_hi = min([k - 1 for k in unsafe if k > i_def], default=len(p_grid) - 1)
+            keep_lo = max([k + 1 for k in unsafe if k < i_def], default=0)
+            reason = f"unsafe point(s) at {[round(float(p_grid[k]), 6) for k in unsafe]}"
+        else:
+            curve, corrected = robust_period_curve(
+                measured, settings.period_median_window, settings.period_outlier_tolerance
+            )
+            steps = np.abs(np.diff(curve) / curve[:-1])
+            jumps = np.flatnonzero(steps > settings.max_period_jump)
+            if jumps.size == 0:
+                break
+            keep_hi = min([int(k) for k in jumps if k >= i_def], default=len(p_grid) - 1)
+            keep_lo = max([int(k) + 1 for k in jumps if k < i_def], default=0)
+            reason = f"P(u) step of {100 * steps.max():.0f}%"
+        new_lo, new_hi = float(p_grid[keep_lo]), float(p_grid[keep_hi])
+        if (
+            not new_lo < system.default_value <= new_hi
+            and not new_lo <= system.default_value < new_hi
+        ):
+            raise RuntimeError(f"{system.name}: trimming left an empty range")
+        trims.append(f"{reason}: [{lo:.5g}, {hi:.5g}] → [{new_lo:.5g}, {new_hi:.5g}]")
         say(trims[-1])
         lo, hi = new_lo, new_hi
     else:
-        raise RuntimeError(f"{system.name}: P(u) still jumps after trimming the range")
+        raise RuntimeError(f"{system.name}: the range still has problems after trimming")
     selection = RangeSelection(
         lo=lo,
         hi=hi,
-        lo_reason=selection.lo_reason if lo == selection.lo else "trimmed: P(u) jump",
-        hi_reason=selection.hi_reason if hi == selection.hi else "trimmed: P(u) jump",
+        lo_reason=selection.lo_reason if lo == selection.lo else "trimmed after table pass",
+        hi_reason=selection.hi_reason if hi == selection.hi else "trimmed after table pass",
         windows=tuple(w for w in selection.windows if lo <= w[0] and w[1] <= hi),
     )
 

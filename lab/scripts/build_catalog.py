@@ -65,9 +65,11 @@ def plot_build(build: SystemBuild, path: Path) -> None:
 
     ax = axes[0, 1]
     if build.period_method != "drive":
-        peak = [r.variables[obs].peak_period if r.bounded else np.nan for r in build.sweep_results]
+        peak = [
+            r.variables[obs].centroid_period if r.bounded else np.nan for r in build.sweep_results
+        ]
         ret = [r.variables[obs].return_time if r.bounded else np.nan for r in build.sweep_results]
-        ax.plot(vals, peak, ".", ms=3, label=f"spectral peak of {obs} (sweep)")
+        ax.plot(vals, peak, ".", ms=3, label=f"peak centroid of {obs} (sweep)")
         ax.plot(vals, ret, ".", ms=3, label=f"return time of {obs} (sweep)")
     p_grid = entry.param_value(entry.u_grid)
     ax.plot(p_grid, entry.period_table, "k-", lw=1.5, label="catalog P(u)")

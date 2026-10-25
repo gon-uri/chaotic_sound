@@ -2,9 +2,11 @@
 
 Two estimators of the characteristic period of a scalar observable s(τ):
 
-- :func:`spectral_peak`: the period of the most prominent peak of the power spectral density
-  (Welch estimate, parabolic interpolation of the log-PSD around the maximum). This is the
-  project's definition of P (ADR 0006).
+- :func:`spectral_peak`: the most prominent peak of the power spectral density (Welch
+  estimate). It reports both the interpolated maximum and the **peak centroid**, the
+  power-weighted mean frequency within ±10 % of the maximum. Chaotic peaks are broad and
+  have sub-structure, so the maximum jumps between sub-peaks while the centroid is 2–4×
+  more stable; the centroid is the project's definition of P (ADR 0010).
 - :func:`mean_return_time`: the mean time between successive local maxima above the mean
   (a Poincaré return time). Used as a cross-check: for phase-coherent attractors both agree.
 
@@ -21,6 +23,8 @@ from scipy.signal import welch
 
 PROMINENCE_BANDWIDTH = 0.03
 """Half-width, relative to the peak frequency, of the band counted as "the peak"."""
+CENTROID_BANDWIDTH = 0.10
+"""Half-width, relative to the maximum, of the band over which the peak centroid is taken."""
 
 
 @dataclass(frozen=True)
@@ -36,11 +40,17 @@ class PeakEstimate:
     prominence
         Fraction of the signal power (above ``f_min``) within ±3 % of the peak frequency.
         It measures how pitched the signal is: about 1 for a sine, small for broadband noise.
+    centroid_frequency
+        Power-weighted mean frequency within ±10 % of the maximum (the peak centroid).
+    centroid_period
+        ``1 / centroid_frequency``.
     """
 
     frequency: float
     period: float
     prominence: float
+    centroid_frequency: float
+    centroid_period: float
 
 
 def spectral_peak(
@@ -84,7 +94,15 @@ def spectral_peak(
     band = valid & (np.abs(freqs - f_peak) <= PROMINENCE_BANDWIDTH * f_peak)
     total = float(np.sum(psd[valid]))
     prominence = float(np.sum(psd[band]) / total) if total > 0 else 0.0
-    return PeakEstimate(frequency=f_peak, period=1.0 / f_peak, prominence=prominence)
+    lobe = valid & (np.abs(freqs - freqs[k]) <= CENTROID_BANDWIDTH * freqs[k])
+    f_centroid = float(np.sum(freqs[lobe] * psd[lobe]) / np.sum(psd[lobe]))
+    return PeakEstimate(
+        frequency=f_peak,
+        period=1.0 / f_peak,
+        prominence=prominence,
+        centroid_frequency=f_centroid,
+        centroid_period=1.0 / f_centroid,
+    )
 
 
 @dataclass(frozen=True)

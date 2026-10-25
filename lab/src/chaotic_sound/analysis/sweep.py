@@ -87,6 +87,7 @@ class VariableStats:
     minimum: float
     maximum: float
     peak_period: float
+    centroid_period: float
     prominence: float
     return_time: float
     drift: float
@@ -152,15 +153,22 @@ def _measure(
         if std > 0:
             peak = spectral_peak(s, dt, nperseg=nperseg, f_min=f_min)
             peak_period, prominence = peak.period, peak.prominence
+            centroid_period = peak.centroid_period
             return_time = mean_return_time(s, dt).mean
         else:  # a fixed point: no oscillation at all
-            peak_period, prominence, return_time = math.nan, 0.0, math.nan
+            peak_period, centroid_period, prominence, return_time = (
+                math.nan,
+                math.nan,
+                0.0,
+                math.nan,
+            )
         stats[name] = VariableStats(
             mean=float(s.mean()),
             std=std,
             minimum=float(s.min()),
             maximum=float(s.max()),
             peak_period=peak_period,
+            centroid_period=centroid_period,
             prominence=prominence,
             return_time=return_time,
             drift=drift,

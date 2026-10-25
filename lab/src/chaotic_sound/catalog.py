@@ -29,7 +29,7 @@ CATALOG_VERSION = 1
 CATALOG_ENV_VAR = "CHAOTIC_SOUND_CATALOG"
 
 PeriodMethod = str
-"""How P was obtained: ``"spectral_peak"``, ``"return_time"`` or ``"drive"`` (ADR 0010)."""
+"""How P was obtained: ``"peak_centroid"``, ``"return_time"`` or ``"drive"`` (ADR 0010)."""
 
 
 def _arr(values: ArrayLike) -> NDArray[np.float64]:
