@@ -1,128 +1,108 @@
 # Review: decisions waiting for the owner
 
-While you were away I made the reasonable choices needed to keep going and recorded them all
-here. Each item gives my choice, the reason, and what to look at. Strike or edit freely:
-nothing below is hard to change yet. Items are ordered by impact.
+- Last updated: 2026-10-26, after the owner's answers to the first round.
+- Section A records how those answers were applied.
+- Section B lists the new choices I made that need a look. Each has a recommendation; edit or
+  strike freely.
 
-> How to listen: the demos are already rendered in `lab/outputs/demos/` (WAV + spectrogram
-> PNG + `report.md`). To regenerate them: `cd lab && uv run python scripts/render_demos.py`.
+> **How to listen:** `cd lab && uv run python scripts/render_demos.py`, then open
+> `lab/outputs/demos/` (WAVs, spectrograms and `report.md`). There is also an interactive
+> tour in `lab/notebooks/01_tour.ipynb`.
 
-## A. Decisions that need your call
+## A. Your answers, applied (engine v0.3, catalog v2)
 
-1. **Engine language for the browser: TypeScript** (ADR 0002, still *Proposed*). You asked
-   for a fuller pros/cons comparison; it is in the ADR. In short:
-   - The UI must be TypeScript anyway, so a TypeScript engine adds no second language.
-   - Speed is not a constraint: about 3–5 RK4 sub-steps per sample per box.
-   - The math stays checkable in the Python reference, through cross-engine tests.
-   - Rust/WASM remains possible later, behind the same kernel interface.
-
-   Phase 2 is blocked only on this decision, and on installing Node (which needs your OK).
-   `docs/design/engine-typescript.md` shows what the engine would look like, including the
-   same RK4 code side by side in Python and TypeScript.
-2. **Thomas as the 5th system.** At dysts' parameters it is the weak voice:
-   - narrow chaotic band (a ∈ [1.78, 1.95]), only 73% chaotic;
-   - no sharp spectral peak, so it is tuned on return times;
-   - its pitch depends on the run (−9 … +34 cents) and wanders by up to ±1 semitone across
-     its band.
-
-   It still works and passes its (looser) tests. Options:
-   - (a) keep it as the "noisy" voice;
-   - (b) replace it (see the screening study, `docs/studies/fifth-system-screening.md`, and
-     section D);
-   - (c) keep it and add the best candidate as a 6th.
-
-   My recommendation: (b) or (c). Evidence: `docs/math/tuning.md` §2, §4, §6 and
-   `docs/figures/catalog_thomas.png`.
-3. **What "chaos only" means.** Strictly windowless ranges are tiny: Rössler [5.6, 5.8],
-   Duffing [0.342, 0.354]. I accepted narrow periodic windows (each ≤ 3% of the candidate
-   range) inside the chaotic band. The knob ranges end up 73–99% chaotic (ADR 0010). Inside a
-   window the sound simply turns periodic for a moment, and pitch lock still holds. Is this
-   acceptable, or do you want stricter (narrower) ranges?
-4. **Default knob positions sit near the bottom of the range** for Lorenz (u = 0.07),
-   Rössler (0.06) and Duffing (0.035), because the dysts default values lie near the low end
-   of their chaotic bands. Duffing's default γ = 0.35 even sits on a small chaotic island
-   below the main band (0.375–0.565). Options:
-   - keep the dysts defaults (current choice; "around the initial value", as you asked);
-   - move the box defaults to mid-range (for example Duffing γ = 0.45). The lab would then
-     recompute the initial condition on the new attractor.
-5. **Lorenz range ρ ∈ [24.8, 71.3].** The low end is chosen above ρ ≈ 24.74 so a modulated
-   box can never fall onto a silent fixed point. The period, and so the uncorrected pitch,
-   changes by almost an octave across the range, so pitch lock matters most here.
-   `03_lorenz_sweep_locked.wav` and `03_lorenz_sweep_free.wav` show the difference.
-6. **One tuning period per system** (ADR 0010). It is measured on the most pitched variable
-   (Lorenz z, Rössler x, Chua y, Duffing y; Thomas x by return time). Switching the heard
-   variable changes the timbre, not the note. Lorenz x/y are tuned through z's loop, but they
-   sound mostly like a rumble (lobe switching). Agree?
-7. **Pitch estimator: the peak centroid** (power-weighted mean within ±10% of the highest
-   bin). It is 2–4× more stable than the highest bin for chaotic peaks. Accuracy:
-   - < 1 cent for Rössler and Duffing;
-   - about 3–6 cents for Lorenz and Chua;
-   - about ±15 cents for Thomas.
-
-   Whether the measured pitch equals the *perceived* pitch needs your ears (section C).
-
-## B. Choices I made that you may want to revisit (lower stakes)
-
-| # | Choice | Where |
+| # | Your answer | What I did |
 |---|---|---|
-| 8 | Loudness: each box normalized to RMS 0.25 (−12 dBFS) at amp = 1; amp is linear; Output soft-clips above 0.9; 5 Hz DC blocker | ADR 0005, spec §3–4 |
-| 9 | Modulation: a cable *replaces* its knob; several cables are summed then clipped to [0, 1]; every control is smoothed (5 ms); amp fades in from 0 at start (no click) | ADR 0005, spec §3, §4.2 |
-| 10 | Modulator shapes start at 0 (sine = (1 − cos)/2, triangle) except square and ramp-down, which start at 1; `period_s` is both the loop period and the envelope length; `once` holds the final value | spec §4.1 |
-| 11 | Box defaults: note A3 (220 Hz), A4 = 440 Hz, 12-TET, cents ±100; pitch lock on; mono (stereo = two variables, optional) | spec §4.2 |
-| 12 | Each box's initial condition = the dysts IC plus a 10⁻⁶σ perturbation seeded from the block id, so identical boxes drift apart (`07_twins.wav`) but renders are reproducible | spec §4.2 step 9 |
-| 13 | The Output accepts one cable (use a Sum box to mix); no feedback cables in v1 | spec §3 |
-| 14 | WAV export: 16-bit PCM by default, 32-bit float optional, 48 kHz | spec §4.4 |
-| 15 | Integration: classical RK4, 256 steps per characteristic period (see the resolution study for whether that is overkill) | ADR 0006 |
-| 16 | Catalog tables: 129 points + exact default node; ranges chosen by continuation sweeps; criteria in ADR 0010 | ADR 0010 |
+| 1 | Synthesis in the browser: OK | ADR 0001 accepted |
+| 2 | TypeScript first, modular and hexagonal so that C++ later is easy | ADR 0002 accepted; **ADR 0011**: core, ports and adapters, a narrow data-only `EnginePort`, a C-style DSP kernel, and golden tests as the language-neutral contract |
+| 3 | Lab → JSON catalog: OK | ADR 0003 accepted; catalog format v2 |
+| 4 | One engine runs the patch: OK | ADR 0004 accepted |
+| 5a | One cable per control input; use an "additive" block to combine | New **Control Sum** box: clip(gain · Σ in, 0, 1). A second cable is rejected with a hint (ADR 0013) |
+| 5b | dB amp curve toggle, on by default, 0.5 = half the volume | `amp_curve = "perceptual"` (default): g = a^1.661, −10 dB per halving, i.e. half as loud. `"linear"` is available |
+| 6–7 | OK | ADR 0006, 0007 accepted |
+| 8 | Pitch input on dynamical boxes, overriding the note | `pitch` input: q ∈ [0, 1] maps linearly in semitones from `pitch_min` to `pitch_max` (default A1 … A5, so 0.5 = A3) |
+| 9 | OK | |
+| 10 | No need for chaos-only ranges; stability and musicality first; the default may move to mid-band; replace Thomas if needed | New range rules (**ADR 0012**): hysteresis test, a musicality criterion, chaos ≥ 60%, windows allowed, default at mid-range. **Thomas replaced by the Rikitake dynamo**, the screening's top pick |
+
+The code review (55 confirmed findings, none high severity) is fixed. The spec now pins every
+formula exactly (spec v0.3): the smoothers, the DC blocker, the modulator phase, portable
+seeding, null and unknown-key handling, and the note grammar. The test suite went from 132
+to 215 tests.
+
+## B. New choices for you to check
+
+1. **The parameter slew** in system time: the parameter smoother is at least
+   max(5 ms, 2 oscillation periods). It came from the modulation study and fixed Chua's
+   safety resets under square modulators. The side effect: at low notes, a square LFO's jump
+   takes longer (about 36 ms at A1). *Recommendation: keep.*
+2. **Peak-limited level**: min(RMS 0.25, robust peak 0.8). Spiky voices are slightly quieter
+   rather than clipped. *Recommendation: keep.*
+3. **Classic values are no longer the defaults.** With the default at mid-range, Lorenz starts
+   at ρ = 48 (not 28) and Rössler at c = 6.56 (not 5.7). The classic values are still inside
+   the ranges and stored as `p_reference`. Do you want the Learn-more pages to offer a
+   "classic value" button?
+4. **Pitch input mapping**: absolute and linear in semitones between two note settings.
+   Alternative: relative to the note (± N semitones, for vibrato). *Recommendation: keep
+   absolute for v1; add a relative mode with the future modulator min/max properties.*
+5. **The Sum gain and the Output volume are still linear.** Should they use the perceptual
+   curve too, for consistency? *Recommendation: yes for Output volume, no for Sum gain (a
+   mixing coefficient).*
+6. **Rikitake's range top is set by hand at μ = 1.8**, because of quiet spells on the
+   attractor above about 2.1 (screening study).
+7. **Notes are limited to C0 … C8.** Aliasing becomes measurable above about F#6
+   (`docs/studies/aliasing.md`). Oversampling is on the roadmap.
+8. **TypeScript tooling**:
+   - Node 24 LTS, installed from the official nodejs.org tarball into `~/.local/node`
+     (Homebrew can't build on macOS 14);
+   - npm workspaces (no extra package manager);
+   - TypeScript in strict mode, run directly by Node (no build step for the engine);
+   - Vitest;
+   - Biome (one tool for lint and format, like ruff).
 
 ## C. What to listen to (`lab/outputs/demos/`)
 
 | File | Listen for |
 |---|---|
-| `01_voice_<system>.wav` | The five voices at A3. Is each one heard as A3? Which sound musical? |
-| `02_owner_example.wav` | Your original example: an LFO on a Rössler parameter, an LFO on the Lorenz amplitude, summed |
-| `03_lorenz_sweep_locked.wav` / `_free.wav` | Pitch lock on vs off during a 20 s sweep of ρ (near the end you pass a narrow periodic window) |
-| `04_chua_square.wav` | Chua flipping between both ends of its range (single vs double scroll) |
-| `05_duffing_drive.wav` | The drive amplitude γ moving slowly; the pitch is exactly the drive |
-| `06_chaotic_chord.wav` | A major chord from four different systems |
-| `07_twins.wav` | Two identical Rössler boxes: unison at first, then chaos pulls them apart |
-| `08_rossler_A2_to_A5.wav` | Same timbre at four octaves (tuning = time rescaling) |
+| `01_voice_<system>.wav` | The five voices at A3. Is each one heard as A3? |
+| `02_owner_example.wav` | Your example: an LFO on a Rössler parameter, an LFO on the Lorenz amplitude, summed |
+| `03_lorenz_sweep_locked.wav` / `_free.wav` | Pitch lock on vs off while ρ sweeps the whole range |
+| `04_chua_square.wav` | Chua flipping between both ends of its range (now with no resets) |
+| `05_duffing_drive.wav` | The drive amplitude moving slowly; the pitch is exactly the drive |
+| `06_chaotic_chord.wav` | All five systems in an A-major chord |
+| `07_twins.wav` | Two identical Rössler boxes drifting apart |
+| `08_rossler_A2_to_A5.wav` | Same timbre at four octaves |
+| `09_pitch_glide.wav` | **New:** the pitch input gliding Rikitake A1 → A5 → A1 |
+| `10_control_sum.wav` | **New:** a slow plus a fast modulator combined in a Control Sum box |
+| `11_amp_envelope.wav` | **New:** the perceptual amp curve fading Lorenz out evenly |
 
-## D. Results of the background studies (partial: the usage limit was reached)
+## D. Studies (`docs/studies/`)
 
-- **Fifth-system screening.** The top candidate to replace Thomas is the **Rikitake dynamo** (1958,
-  geophysics: Earth's magnetic-field reversals). It modulates `a`, is chaotic across a wide range
-  with no windows, has a smooth P(u), tunes on z (prominence ≈0.5) within a few cents, and had 0
-  resets. Its caveat is a high crest factor (peaks up to 1.3 at RMS 0.25). Runners-up: Rucklidge
-  (convection, close to Lorenz) and Moore–Spiegel (1966 astrophysics; weakly chaotic). Raw
-  results: `lab/outputs/review/studies-result.txt`. The synthesis report may be in `docs/studies/`.
-- **Aliasing, resolution, cost and modulation studies**: drafts in `docs/studies/` and
-  `lab/scripts/studies/`. Each was reviewed ("minor issues"), but the final revision step did not
-  run because of the usage limit. Treat the numbers as unrevised drafts.
-- **Code review** of the engine: done, with adversarially verified findings, but **not yet
-  fixed**. Raw results: `lab/outputs/review/engine-review-result.txt` (local, not committed).
-  Examples: the spec should pin the modulator's floating-point phase formula (low severity), and
-  patch JSON writes `null` for defaulted params, which spec §5 does not define (medium).
+| Study | Main result |
+|---|---|
+| Fifth-system screening | 24 dysts flows evaluated; the Rikitake dynamo (μ) is recommended, then Rucklidge and Halvorsen |
+| Aliasing | Below −110 dB up to A5; −80 dB is crossed above about F#6–E7 depending on the system. Oversampling only matters in the top octave |
+| Resolution | 256 RK4 steps per period is sufficient and about 2× more than needed; 128 would do for most systems |
+| Cost | One box costs 0.2–0.4% of a core at A3 in JavaScript, so more than 100 boxes run in real time. WebAssembly is not needed for speed |
+| Modulation | Adiabatic for sweeps slower than about 100 oscillation periods; faster is real forcing (FM-like). Recommended the system-time slew, now implemented |
 
-## E. Setup choices
+The four Phase-1 studies are being revised for engine v0.3 (Rikitake instead of Thomas, and
+the reviewers' points addressed). Each report says which engine version its numbers come
+from.
 
-- **uv** was installed into `~/.local/share/uv-bootstrap` (linked from `~/.local/bin/uv`),
-  because Homebrew has no prebuilt packages for macOS 14 and failed to build from source.
-  Removable at any time.
-- Python 3.14 (uv-managed) with numba 0.68; dysts is pinned to commit `2a03f1ae7b06` as a dev
-  dependency.
-- Claude Code configuration:
-  - `.claude/settings.json`: narrow allow rules for `uv run pytest/ruff/mypy/python scripts/*`,
-    plus a hook that runs `ruff format` on edited Python files;
-  - a nested `lab/CLAUDE.md`;
-  - the project skill `/add-dynamical-system`.
-- Generated figures (`docs/figures/`) and demo patches (`examples/patches/`) are committed.
-  WAVs are not.
+## E. Setup
+
+- **uv** is in `~/.local/share/uv-bootstrap` (linked from `~/.local/bin/uv`); delete that
+  folder to remove it. **Node** goes in `~/.local/node` (same idea).
+- Python 3.14 with numba 0.68; dysts pinned at commit `2a03f1ae7b06` (a dev dependency).
 - **License**: none yet (private repo). dysts' GitHub says Apache-2.0 while its package
-  metadata says MIT. Settle this before publishing (`NOTICE.md`).
+  metadata says MIT. Settle this before publishing.
 
-## F. System pages ("Learn more" drafts)
+## F. System pages (`docs/systems/`)
 
-`docs/systems/*.md` were written by agents and then fact-checked by two independent agents
-per page (history/citations and math). The remaining doubts are listed at the end of this
-file once the pages are final. They need your review before anything is published.
+- The Lorenz, Rössler, Chua and Duffing pages were written, fact-checked by two independent
+  agents (history and citations, and math), and revised.
+- They are now being refreshed for catalog v2, and a new Rikitake page is being written and
+  checked the same way.
+- Thomas's page is archived in `docs/systems/archive/`.
+- Each page's remaining doubts are in the agents' reports, summarized here when final.
+  Everything needs your review before publishing.
