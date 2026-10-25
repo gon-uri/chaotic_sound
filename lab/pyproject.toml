@@ -1,0 +1,69 @@
+[project]
+name = "chaotic-sound"
+version = "0.1.0"
+description = "Reference sound engine and analysis lab for chaotic_sound: chaotic ODEs tuned to musical notes."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Gonzalo Uribarri" }]
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "numba>=0.61",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "matplotlib>=3.9",
+    "ipykernel>=6",
+    # Used only to cross-check our system definitions and to snapshot catalog data.
+    # Pinned to the commit the catalog snapshot was taken from.
+    "dysts @ git+https://github.com/GilpinLab/dysts@2a03f1ae7b0680b0470458783dcb4664660e131a",
+]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "NPY", "SIM", "RUF", "D"]
+ignore = [
+    "D105",   # magic methods need no docstring
+    "D107",   # __init__ documented in the class docstring
+    "RUF001", # allow unicode symbols (σ, ρ, …) in strings
+    "RUF002", # … and in docstrings
+    "RUF003", # … and in comments
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+"scripts/**" = ["D103"]
+"notebooks/**" = ["D"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+disallow_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = ["numba", "numba.*", "scipy", "scipy.*", "dysts", "dysts.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "slow: long-running numerical tests (deselect with -m 'not slow')",
+]
