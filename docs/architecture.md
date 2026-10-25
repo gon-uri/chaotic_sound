@@ -8,7 +8,7 @@
 ```mermaid
 flowchart LR
   subgraph offline["Offline (developer machine)"]
-    dysts[(dysts snapshot<br/>params, ICs, metadata)]
+    dysts[(dysts, pinned commit<br/>params, ICs, metadata)]
     lab["lab/ (Python)<br/>reference engine + analysis"]
     dysts --> lab
   end

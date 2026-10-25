@@ -4,6 +4,8 @@ Usage (from ``lab/``; takes about a minute)::
 
     caffeinate -is uv run python scripts/build_catalog.py [--systems lorenz rossler ...]
 
+With ``--systems``, only those entries are rebuilt and merged into the existing catalog.
+
 Writes:
 
 - ``../catalog/systems.json``: the catalog consumed by engines (committed);
@@ -25,7 +27,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from chaotic_sound.analysis.catalog_builder import SystemBuild, build_catalog, point_period
-from chaotic_sound.catalog import default_catalog_path
+from chaotic_sound.catalog import Catalog, default_catalog_path
 from chaotic_sound.integrate import trajectory
 from chaotic_sound.systems import get_system, list_systems
 
@@ -146,6 +148,13 @@ def main() -> None:
     start = time.time()
     systems = [get_system(n) for n in args.systems]
     catalog, builds = build_catalog(systems, progress=print)
+    if set(args.systems) != set(list_systems()) and args.output.exists():
+        # Partial build: keep the other systems' entries from the existing catalog.
+        old = Catalog.load(args.output)
+        merged = {**old.entries, **catalog.entries}
+        catalog = Catalog(entries={k: merged[k] for k in list_systems() if k in merged},
+                          metadata=catalog.metadata)  # fmt: skip
+        print(f"merged {sorted(builds)} into the existing catalog")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     catalog.save(args.output)
     print(f"wrote {args.output}")

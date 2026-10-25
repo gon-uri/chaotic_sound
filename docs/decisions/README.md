@@ -23,6 +23,7 @@ When Claude makes a decision while the owner is away, it is written as *Proposed
 | [0007](0007-own-system-definitions.md) | Own system definitions, dysts as data source and test oracle | Accepted (provisional) |
 | [0008](0008-modulators-v1.md) | v1 modulators: separate entity, 5 shapes, loop/once | Accepted (owner's answers) |
 | [0009](0009-python-tooling.md) | Python tooling: uv, Python 3.14, numba, ruff, mypy, pytest | Accepted (provisional) |
+| [0010](0010-period-estimation-and-ranges.md) | One period per system (peak centroid / return time / drive); chaotic-range criteria | Accepted (provisional) |
 
 Template:
 

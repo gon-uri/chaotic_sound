@@ -17,8 +17,10 @@ parameter, which dysts does not provide.
 - We write each system's right-hand side ourselves (`lab/src/chaotic_sound/systems/`), in a
   uniform signature suited to our kernels.
 - dysts is used only as:
-  - a **data source**: a snapshot of its metadata, taken by script from a pinned commit
-    (`2a03f1ae7b06`);
+  - a **data source**: parameter values and initial conditions are copied into our system
+    modules from a pinned commit (`2a03f1ae7b06`), and tests check they still match. The
+    catalog builder also records dysts' metadata (citation, description, period, Lyapunov
+    estimate);
   - a **test oracle**: tests check that our RHS equals dysts' RHS at random points.
 - dysts is a dev dependency installed from that git commit (which needs only numpy, scipy and
   tqdm), never a runtime dependency.

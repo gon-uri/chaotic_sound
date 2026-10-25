@@ -8,11 +8,13 @@ This package (`chaotic_sound`, `src/` layout) is the reference implementation of
 
 - `uv run pytest -q -m "not slow"` (fast loop) and `uv run pytest -q` (everything)
 - `uv run ruff check . && uv run ruff format --check .` and `uv run mypy`
-- `uv run python scripts/snapshot_dysts.py`: refreshes `data/dysts_snapshot.json` from the
-  pinned dysts.
 - `caffeinate -is uv run python scripts/build_catalog.py`: writes `../catalog/systems.json`
-  and plots to `outputs/catalog/`.
-- `uv run python scripts/render_demos.py`: writes WAVs and spectrograms to `outputs/demos/`.
+  and plots to `outputs/catalog/` (about 2 minutes). Copy updated figures to
+  `../docs/figures/` when they change the conclusions.
+- `uv run python scripts/render_demos.py`: writes WAVs, spectrograms and `report.md` to
+  `outputs/demos/`, and the demo patches to `../examples/patches/` (committed).
+- After any change to tuning, catalog or blocks: rebuild the catalog, then run the full test
+  suite (`uv run pytest -q`). The slow tests check tuning accuracy per note.
 
 ## Code rules
 

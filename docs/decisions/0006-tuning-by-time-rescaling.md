@@ -1,6 +1,7 @@
 # 0006. Tuning by time rescaling; period from the spectral peak; pitch lock
 
-- Status: Accepted (provisional, pending owner review)
+- Status: Accepted (provisional, pending owner review). Point 2 (the definition of P) and point 3
+  (one P per observable) are refined by ADR 0010.
 - Date: 2026-10-25
 
 ## Context
