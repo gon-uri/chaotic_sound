@@ -23,14 +23,19 @@ Goal: prove that "tuned chaos" works and sounds interesting before building any 
 - [x] Code review: 55 findings fixed, spec v0.3 pins every formula.
 - [ ] Listening tests by the owner (does the measured pitch match the perceived one?).
 
-## Phase 2: TypeScript engine (in progress)
+## Phase 2: TypeScript engine ✅ (2026-10-26)
 
-- [ ] `packages/engine`: hexagonal core (ADR 0011) implementing spec v0.3, reading the catalog.
-- [ ] Golden vectors from the Python lab (`examples/golden/`); cross-engine tests.
-- [ ] Adapters: Node CLI renderer + WAV; AudioWorklet processor; offline (Web Worker) renderer.
-- [ ] A minimal HTML test page to hear a patch live in the browser.
+- [x] `packages/engine`: hexagonal core (ADR 0011) implementing spec v0.3, reading the catalog.
+- [x] Golden vectors from the Python lab (`examples/golden/`) and cross-engine tests. All
+      fixtures match: initial states are bit-identical and the first 2048 samples agree to
+      ≤ 3e-13.
+- [x] Adapters: Node CLI renderer + WAV, AudioWorklet processor, offline renderer.
+- [x] A developer playground (`apps/playground`) to hear the patches live in the browser.
+- [ ] Independent review of the TS engine and its fixes (in progress).
+- [ ] Offline rendering in a Web Worker (the playground renders WAVs on the main thread for
+      now).
 
-## Phase 3: web app MVP
+## Phase 3: web app MVP (next)
 
 - [ ] Patch editor (React Flow): add, move and delete boxes; draw cables; edit knobs.
 - [ ] Play/stop, master volume, WAV export.

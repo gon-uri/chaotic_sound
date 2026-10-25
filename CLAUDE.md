@@ -10,7 +10,8 @@ musicians curious about math.
 
 - Phase 1 is done: the Python reference engine, analysis and catalog v2 in `lab/` (engine
   v0.3).
-- Phase 2 is in progress: the TypeScript engine in `packages/engine/`.
+- Phase 2 is done for the engine: the TypeScript engine in `packages/engine/`, verified
+  against the golden vectors and run live in the browser through `apps/playground/`.
 - Phase 3 (the web UI) has not started.
 - `docs/REVIEW.md` lists the decisions the owner has not reviewed yet. Keep it up to date.
 
@@ -42,6 +43,8 @@ TypeScript (run from the repo root; Node 24 is in `~/.local/node`, see `docs/REV
 - `npm test`
 - `npm run check` (types and lint)
 - `npm run render -- <patch.json> <out.wav>`
+- `npm run playground`: Vite dev server on http://localhost:5173 (launch config `playground`
+  in `.claude/launch.json`)
 
 ## Docs to read before changing related code
 

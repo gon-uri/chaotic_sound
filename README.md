@@ -5,9 +5,14 @@ chaotic differential equation (Lorenz, Rössler, Chua, …) and is tuned to a mu
 Patching boxes together lets you hear chaos, and each box opens a page on the math and the
 history behind its system.
 
-> Status: Phase 1 (Python reference engine and analysis) is implemented: 5 tuned systems, modulators,
-> mixing, offline WAV rendering, catalog of chaotic ranges and tuning tables, 132 tests. The browser
-> engine and UI (Phases 2–3) have not started. Private repository. Open decisions: [`docs/REVIEW.md`](docs/REVIEW.md).
+> Status (2026-10-26):
+> - **Phase 1**, the Python reference engine and analysis, is done: five tuned systems,
+>   modulators, mixing, WAV export, and a catalog of playable ranges.
+> - **Phase 2**, the TypeScript engine, runs live in the browser through an AudioWorklet and
+>   matches the Python reference (golden tests). There is a developer playground to hear it.
+> - **Phase 3**, the patch-editor UI, is next.
+>
+> Private repository. Open decisions: [`docs/REVIEW.md`](docs/REVIEW.md).
 
 ## Why
 
@@ -31,8 +36,11 @@ WAV. See [`docs/math/tuning.md`](docs/math/tuning.md).
 |---|---|
 | [`lab/`](lab/) | Python package `chaotic_sound`: reference engine, analysis tools, catalog generator |
 | [`catalog/`](catalog/) | Generated data: systems, parameter ranges, tuning tables (the lab → engine contract) |
+| [`packages/engine/`](packages/engine/) | TypeScript engine: pure core + ports + adapters (AudioWorklet, offline, CLI) |
+| [`apps/playground/`](apps/playground/) | Developer page that plays the example patches live in the browser |
 | [`docs/`](docs/) | Vision, v1 spec, architecture, decision records, math notes, studies, system pages |
 | [`examples/patches/`](examples/patches/) | Demo patches in the patch JSON format (also cross-engine test fixtures) |
+| [`examples/golden/`](examples/golden/) | Reference vectors from the Python engine for cross-engine tests |
 
 ## Quick start (Python lab)
 
@@ -43,6 +51,16 @@ cd lab
 uv sync                                   # create the environment
 uv run pytest -q                          # run the tests
 uv run python scripts/render_demos.py     # render demo WAVs into lab/outputs/demos/
+```
+
+## Quick start (TypeScript engine)
+
+You need Node 24 or later. Install the dependencies once with `npm install`, then:
+
+```bash
+npm test                                  # engine tests, incl. cross-engine golden tests
+npm run playground                        # open http://localhost:5173 and press Play
+npm run render -- examples/patches/06_chaotic_chord.json chord.wav --seconds 20
 ```
 
 ## Credits

@@ -6,7 +6,10 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./offline": "./src/adapters/offline.ts",
+    "./wav": "./src/adapters/wav.ts",
     "./worklet": "./src/adapters/worklet/processor.ts",
+    "./worklet/protocol": "./src/adapters/worklet/protocol.ts",
     "./node": "./src/adapters/node/index.ts"
   },
   "scripts": {

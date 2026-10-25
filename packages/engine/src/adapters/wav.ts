@@ -16,7 +16,7 @@ export function encodeWav(
   right: ArrayLike<number>,
   sampleRate: number,
   format: WavFormat = "pcm16",
-): Uint8Array {
+): Uint8Array<ArrayBuffer> {
   const n = left.length;
   const channels = 2;
   const bytesPerSample = format === "pcm16" ? 2 : 4;

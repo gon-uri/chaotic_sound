@@ -13,8 +13,11 @@ This package (`chaotic_sound`, `src/` layout) is the reference implementation of
   `../docs/figures/` when they change the conclusions.
 - `uv run python scripts/render_demos.py`: writes WAVs, spectrograms and `report.md` to
   `outputs/demos/`, and the demo patches to `../examples/patches/` (committed).
-- After any change to tuning, catalog or blocks: rebuild the catalog, then run the full test
-  suite (`uv run pytest -q`). The slow tests check tuning accuracy per note.
+- `uv run python scripts/export_golden.py`: writes the cross-engine vectors to
+  `../examples/golden/`. `tests/test_golden.py` fails when they are stale.
+- After any change to tuning, catalog or blocks: rebuild the catalog, re-render the demos,
+  re-export the golden vectors, then run the full test suite (`uv run pytest -q`; the slow
+  tests check tuning accuracy per note) and the TypeScript tests (`npm test` at the repo root).
 
 ## Code rules
 

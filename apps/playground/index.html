@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>chaotic_sound playground</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { max-width: 46rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+      fieldset { border: 1px solid #8884; border-radius: 0.5rem; margin: 1rem 0; }
+      label { display: block; margin: 0.4rem 0; }
+      button { font: inherit; padding: 0.3rem 0.9rem; margin-right: 0.5rem; }
+      select, input[type="range"] { width: 100%; }
+      pre { background: #8881; padding: 0.6rem; border-radius: 0.4rem; white-space: pre-wrap; }
+      .muted { opacity: 0.7; font-size: 0.9em; }
+    </style>
+  </head>
+  <body>
+    <h1>chaotic_sound playground</h1>
+    <p class="muted">
+      A developer tool for Phase 2: it plays the example patches with the TypeScript engine running in
+      the browser's audio thread (AudioWorklet). The real editor comes in Phase 3.
+    </p>
+    <fieldset>
+      <legend>Patch</legend>
+      <label>Example <select id="patch"></select></label>
+      <button id="play">Play</button><button id="stop" disabled>Stop</button>
+      <button id="wav">Render 10 s WAV</button>
+      <p id="description" class="muted"></p>
+    </fieldset>
+    <fieldset id="knobs"><legend>Live knobs (first dynamical box)</legend></fieldset>
+    <fieldset>
+      <legend>Engine</legend>
+      <pre id="status">Press Play (browsers only start audio after a click).</pre>
+    </fieldset>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

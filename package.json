@@ -4,16 +4,18 @@
   "description": "Modular synth driven by chaotic ODEs tuned to musical notes (workspace root).",
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "engines": {
     "node": ">=24"
   },
   "scripts": {
     "test": "npm test --workspace @chaotic-sound/engine",
-    "check": "npm run check --workspace @chaotic-sound/engine && biome check .",
+    "check": "npm run check --workspace @chaotic-sound/engine && npm run check --workspace @chaotic-sound/playground && biome check .",
     "format": "biome format --write .",
-    "render": "node packages/engine/src/adapters/node/cli.ts"
+    "render": "node packages/engine/src/adapters/node/cli.ts",
+    "playground": "npm run dev --workspace @chaotic-sound/playground"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.3",

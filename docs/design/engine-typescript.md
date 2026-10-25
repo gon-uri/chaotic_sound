@@ -1,6 +1,8 @@
 # Design sketch: the TypeScript real-time engine (Phase 2)
 
-- Status: **design sketch**, waiting on ADR 0002 (engine language). Nothing is implemented.
+- Status: **implemented** (Phase 2, 2026-10-26), following ADR 0011. This document is kept
+  as the design rationale; `packages/engine/CLAUDE.md` describes the actual layout. The
+  tooling chosen: Node 24, npm workspaces, TypeScript 7 run directly by Node, Vitest, Biome.
 - Purpose:
   1. Show concretely what the proposed TypeScript engine would look like, to help decide ADR
      0002.
