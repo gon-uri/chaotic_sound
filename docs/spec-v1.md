@@ -121,8 +121,8 @@ Each sample is computed as follows:
 7. **Phase variables.** The drive phase of forced systems (Duffing's z) is wrapped modulo 2π
    after every sample.
 8. **Safety.** If the state becomes non-finite or leaves the catalog's bounding box, it is reset
-   to the initial condition, and the engine counts the event. The output is muted for that
-   sample.
+   to the initial condition, and the engine counts the event so it can be reported. A curated
+   range should make this never happen; the check is only a safety net.
 9. **Initial condition.** The catalog's initial condition, which lies on the attractor, plus a
    seeded perturbation of 10⁻⁶·σ per variable. Two boxes with the same system and note
    therefore drift apart instead of sounding identical, while renders stay reproducible.
