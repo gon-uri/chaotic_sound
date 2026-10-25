@@ -16,7 +16,9 @@ nothing below is hard to change yet. Items are ordered by impact.
    - The math stays checkable in the Python reference, through cross-engine tests.
    - Rust/WASM remains possible later, behind the same kernel interface.
 
-   Phase 2 is blocked only on this decision.
+   Phase 2 is blocked only on this decision, and on installing Node (which needs your OK).
+   `docs/design/engine-typescript.md` shows what the engine would look like, including the
+   same RK4 code side by side in Python and TypeScript.
 2. **Thomas as the 5th system.** At dysts' parameters it is the weak voice:
    - narrow chaotic band (a ∈ [1.78, 1.95]), only 73% chaotic;
    - no sharp spectral peak, so it is tuned on return times;

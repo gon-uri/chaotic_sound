@@ -60,4 +60,7 @@ Why:
 
 ## Alternatives considered
 
+A concrete sketch of option A (layout, interfaces, worklet protocol, tests, side-by-side Python
+and TypeScript code) is in `../design/engine-typescript.md`.
+
 B and C are in the table above. "Python everywhere" is ruled out by ADR 0001.
