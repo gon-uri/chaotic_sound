@@ -1,0 +1,7 @@
+{
+  "//": "Node adapters, the offline renderer, WAV and the tests.",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "lib": ["es2023"], "types": ["node"] },
+  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"],
+  "exclude": ["src/adapters/worklet/**"]
+}

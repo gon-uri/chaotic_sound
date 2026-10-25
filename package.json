@@ -1,0 +1,22 @@
+{
+  "name": "chaotic-sound",
+  "private": true,
+  "description": "Modular synth driven by chaotic ODEs tuned to musical notes (workspace root).",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "npm test --workspace @chaotic-sound/engine",
+    "check": "npm run check --workspace @chaotic-sound/engine && biome check .",
+    "format": "biome format --write .",
+    "render": "node packages/engine/src/adapters/node/cli.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.3",
+    "typescript": "7.0.2"
+  }
+}

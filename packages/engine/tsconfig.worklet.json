@@ -1,0 +1,6 @@
+{
+  "//": "The AudioWorklet adapter runs in the browser's audio thread (AudioWorkletGlobalScope).",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "lib": ["es2023"], "types": ["audioworklet"] },
+  "include": ["src/adapters/worklet/**/*.ts"]
+}

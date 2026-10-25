@@ -1,0 +1,6 @@
+{
+  "//": "The core and the ports: plain ECMAScript only, no DOM, Web Audio or Node types (ADR 0011).",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "lib": ["es2023"], "types": [] },
+  "include": ["src/core/**/*.ts", "src/ports.ts", "src/index.ts"]
+}

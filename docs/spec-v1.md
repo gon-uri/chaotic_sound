@@ -149,7 +149,7 @@ Per chunk and per sample i:
 6. **Integration.**
    - Δτ = k/fs, and n_sub = clamp(⌈Δτ/h_max⌉, 1, 4096).
    - Take n_sub classical RK4 steps of h = Δτ/n_sub, with p held constant within the sample.
-   - Wrap phase variables (Duffing's z) to [0, 2π) as x − 2π·floor(x/2π).
+   - Wrap phase variables (Duffing's z) to [0, 2π) with the floating-point remainder: r = fmod(x, 2π), plus 2π if r < 0 (Python's `%`).
    - h_max comes from the catalog.
    - **Sample timing**: the sample's output is the state *after* this advance.
 7. **Audio.**
