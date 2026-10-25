@@ -3,17 +3,8 @@
   "compilerOptions": {
     "module": "esnext",
     "moduleResolution": "bundler",
-    "lib": [
-      "es2023",
-      "dom",
-      "dom.iterable"
-    ],
-    "types": [
-      "vite/client"
-    ]
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["vite/client"]
   },
-  "include": [
-    "src/**/*.ts",
-    "vite.config.ts"
-  ]
+  "include": ["src/**/*.ts", "vite.config.ts"]
 }

@@ -10,7 +10,9 @@ history behind its system.
 >   modulators, mixing, WAV export, and a catalog of playable ranges.
 > - **Phase 2**, the TypeScript engine, runs live in the browser through an AudioWorklet and
 >   matches the Python reference (golden tests). There is a developer playground to hear it.
-> - **Phase 3**, the patch-editor UI, is next.
+> - **Phase 3** has started: a first patch editor (`apps/web`) lets you add boxes, draw cables,
+>   turn knobs, play live, export WAV and open the Learn-more pages (3D attractor, equations,
+>   history).
 >
 > Private repository. Open decisions: [`docs/REVIEW.md`](docs/REVIEW.md).
 
@@ -37,6 +39,7 @@ WAV. See [`docs/math/tuning.md`](docs/math/tuning.md).
 | [`lab/`](lab/) | Python package `chaotic_sound`: reference engine, analysis tools, catalog generator |
 | [`catalog/`](catalog/) | Generated data: systems, parameter ranges, tuning tables (the lab → engine contract) |
 | [`packages/engine/`](packages/engine/) | TypeScript engine: pure core + ports + adapters (AudioWorklet, offline, CLI) |
+| [`apps/web/`](apps/web/) | The app: patch editor (React + React Flow) and Learn-more pages |
 | [`apps/playground/`](apps/playground/) | Developer page that plays the example patches live in the browser |
 | [`docs/`](docs/) | Vision, v1 spec, architecture, decision records, math notes, studies, system pages |
 | [`examples/patches/`](examples/patches/) | Demo patches in the patch JSON format (also cross-engine test fixtures) |
@@ -58,8 +61,9 @@ uv run python scripts/render_demos.py     # render demo WAVs into lab/outputs/de
 You need Node 24 or later. Install the dependencies once with `npm install`, then:
 
 ```bash
-npm test                                  # engine tests, incl. cross-engine golden tests
-npm run playground                        # open http://localhost:5173 and press Play
+npm test                                  # all TypeScript tests, incl. cross-engine golden tests
+npm run web                               # the editor: open http://localhost:5174
+npm run playground                        # developer page: http://localhost:5173
 npm run render -- examples/patches/06_chaotic_chord.json chord.wav --seconds 20
 ```
 

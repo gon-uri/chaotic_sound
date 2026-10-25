@@ -3,9 +3,14 @@
   "files": {
     "includes": [
       "packages/**/*.ts",
+      "apps/**/*.ts",
+      "apps/**/*.tsx",
+      "apps/**/*.css",
       "packages/**/*.json",
+      "apps/**/*.json",
       "*.json",
       "!**/node_modules",
+      "!**/dist",
       "!examples",
       "!catalog"
     ]
@@ -35,5 +40,17 @@
         "useMathMinMax": "off"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["**/*.css"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noImportantStyles": "off"
+          }
+        }
+      }
+    }
+  ]
 }

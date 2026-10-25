@@ -37,11 +37,18 @@ Goal: prove that "tuned chaos" works and sounds interesting before building any 
 - [x] CI workflow (`.github/workflows/ci.yml`): both test suites, on pull requests and on
       demand.
 
-## Phase 3: web app MVP (next)
+## Phase 3: web app MVP (in progress)
 
-- [ ] Patch editor (React Flow): add, move and delete boxes; draw cables; edit knobs.
-- [ ] Play/stop, master volume, WAV export.
-- [ ] Save/load patches (JSON file, and local storage).
+- [x] Patch editor (React Flow): add, move and delete boxes; draw typed cables (checked by
+      the engine's rules); edit knobs and settings; undo/redo; automatic layout.
+- [x] Play/stop through the AudioWorklet, live knob changes, WAV export in a Web Worker.
+- [x] Save/load: JSON files, the examples menu, autosave to the browser's storage.
+- [x] Learn-more pages: a 3D attractor computed by the engine core, the knob's parameter,
+      and the system pages (Markdown + KaTeX) from `docs/systems/`.
+- [ ] Owner's design review: visual style, page structure, default patch (see
+      `docs/design/web-app.md` §5).
+- [ ] Level meters and live scopes on the boxes; a mobile layout; an end-to-end browser test.
+- [ ] Static deployment (GitHub Pages or own host).
 
 ## Phase 4: Learn-more pages
 

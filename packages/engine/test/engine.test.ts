@@ -196,3 +196,14 @@ describe("live parameter changes", () => {
     expect(e.patch?.blocks[0]?.params).toEqual({ system: "chua" });
   });
 });
+
+test("attractor points for the 3D view stay on the attractor", async () => {
+  const { attractorPoints } = await import("../src/core/trajectory.ts");
+  const { Catalog } = await import("../src/core/catalog.ts");
+  const cat = new Catalog(catalog);
+  for (const name of ["lorenz", "rossler", "chua", "rikitake", "duffing"]) {
+    const a = attractorPoints(cat, name, 0.5, 2000);
+    expect(a.points.length).toBe(2000 * a.dim);
+    expect(a.points.every((v) => Number.isFinite(v))).toBe(true);
+  }
+});

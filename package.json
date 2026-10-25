@@ -11,14 +11,19 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "npm test --workspace @chaotic-sound/engine",
-    "check": "npm run check --workspace @chaotic-sound/engine && npm run check --workspace @chaotic-sound/playground && biome check .",
+    "test": "npm test --workspaces --if-present",
+    "check": "npm run check --workspace @chaotic-sound/engine && npm run check --workspace @chaotic-sound/playground && npm run check --workspace @chaotic-sound/web && biome check .",
     "format": "biome format --write .",
     "render": "node packages/engine/src/adapters/node/cli.ts",
-    "playground": "npm run dev --workspace @chaotic-sound/playground"
+    "playground": "npm run dev --workspace @chaotic-sound/playground",
+    "web": "npm run dev --workspace @chaotic-sound/web",
+    "build:web": "npm run build --workspace @chaotic-sound/web"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.3",
     "typescript": "7.0.2"
+  },
+  "overrides": {
+    "katex": "0.19.1"
   }
 }

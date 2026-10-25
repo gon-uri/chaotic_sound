@@ -5,6 +5,7 @@
 
 import type { CatalogDocument, PatchDocument } from "@chaotic-sound/engine";
 import type { RenderRequest, RenderResponse } from "@chaotic-sound/engine/worker/protocol";
+import renderWorkerUrl from "@chaotic-sound/engine/worker?worker&url";
 import {
   type FromWorklet,
   PROCESSOR_NAME,
@@ -12,7 +13,6 @@ import {
 } from "@chaotic-sound/engine/worklet/protocol";
 // Vite compiles the processor (and the core it imports) into one module and gives its URL.
 import processorUrl from "@chaotic-sound/engine/worklet?worker&url";
-import renderWorkerUrl from "@chaotic-sound/engine/worker?worker&url";
 import catalogJson from "../../../catalog/systems.json";
 
 const catalog = catalogJson as unknown as CatalogDocument;
@@ -46,7 +46,9 @@ function currentPatch(): PatchDocument {
 }
 
 function buildKnobs(patch: PatchDocument): void {
-  knobs.replaceChildren(Object.assign(document.createElement("legend"), { textContent: "Live knobs" }));
+  knobs.replaceChildren(
+    Object.assign(document.createElement("legend"), { textContent: "Live knobs" }),
+  );
   const dyn = patch.blocks.find((b) => b.type === "dynamical");
   const out = patch.blocks.find((b) => b.type === "output");
   const add = (blockId: string, name: string, label: string, initial: number): void => {
@@ -72,7 +74,8 @@ function buildKnobs(patch: PatchDocument): void {
     add(dyn.id, "param", `${dyn.id} · parameter (u)`, u);
     add(dyn.id, "amp", `${dyn.id} · amp`, (dyn.params?.amp as number | undefined) ?? 1);
   }
-  if (out) add(out.id, "volume", `${out.id} · volume`, (out.params?.volume as number | undefined) ?? 0.8);
+  if (out)
+    add(out.id, "volume", `${out.id} · volume`, (out.params?.volume as number | undefined) ?? 0.8);
 }
 
 async function play(): Promise<void> {

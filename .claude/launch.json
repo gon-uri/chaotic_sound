@@ -4,8 +4,26 @@
     {
       "name": "playground",
       "runtimeExecutable": "/Users/uribarri/.local/node/bin/node",
-      "runtimeArgs": ["node_modules/vite/bin/vite.js", "apps/playground", "--port", "5173", "--strictPort"],
+      "runtimeArgs": [
+        "node_modules/vite/bin/vite.js",
+        "apps/playground",
+        "--port",
+        "5173",
+        "--strictPort"
+      ],
       "port": 5173
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "/Users/uribarri/.local/node/bin/node",
+      "runtimeArgs": [
+        "node_modules/vite/bin/vite.js",
+        "apps/web",
+        "--port",
+        "5174",
+        "--strictPort"
+      ],
+      "port": 5174
     }
   ]
 }

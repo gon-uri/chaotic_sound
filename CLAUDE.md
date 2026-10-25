@@ -12,7 +12,8 @@ musicians curious about math.
   v0.3).
 - Phase 2 is done for the engine: the TypeScript engine in `packages/engine/`, verified
   against the golden vectors and run live in the browser through `apps/playground/`.
-- Phase 3 (the web UI) has not started.
+- Phase 3 has started: the editor MVP in `apps/web/` (React + React Flow + Zustand), and
+  the Learn-more pages (Three.js, KaTeX). Design: `docs/design/web-app.md`.
 - `docs/REVIEW.md` lists the decisions the owner has not reviewed yet. Keep it up to date.
 
 ## Repo map
@@ -21,6 +22,8 @@ musicians curious about math.
   and the catalog generator. Read `lab/CLAUDE.md` before working there.
 - `packages/engine/`: the TypeScript engine (core + ports + adapters). Read
   `packages/engine/CLAUDE.md` before working there.
+- `apps/web/`: the app (a driving adapter of the engine). `apps/playground/` is a developer
+  page.
 - `catalog/`: generated JSON (systems, ranges, tuning tables). It is the contract between the
   lab and the engines. Never edit it by hand; regenerate it.
 - `examples/patches/`: demo patches (patch JSON). They double as cross-engine fixtures.
@@ -43,8 +46,10 @@ TypeScript (run from the repo root; Node 24 is in `~/.local/node`, see `docs/REV
 - `npm test`
 - `npm run check` (types and lint)
 - `npm run render -- <patch.json> <out.wav>`
-- `npm run playground`: Vite dev server on http://localhost:5173 (launch config `playground`
-  in `.claude/launch.json`)
+- `npm run web`: the editor on http://localhost:5174 (launch config `web`)
+- `npm run playground`: developer page on http://localhost:5173 (launch config `playground`)
+- The `.claude/launch.json` configs call Node by absolute path, because `~/.local/bin` may not
+  be on the app's PATH.
 
 ## Docs to read before changing related code
 

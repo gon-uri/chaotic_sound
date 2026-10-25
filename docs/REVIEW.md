@@ -90,6 +90,27 @@ npm run playground   # then open http://localhost:5173, pick a patch, press Play
     and on demand, to save Actions minutes on the private repo. Running it on every push is a
     one-line change. Do you want that?
 
+## B3. Phase 3 (editor MVP), new and ready to try
+
+```bash
+npm run web   # then open http://localhost:5174
+```
+
+- **What it does:** add boxes from the toolbar, drag cables from an output (right) to an
+  input (left), turn knobs, press Play, open "Learn more" on any dynamical box, load an
+  example, save or open a JSON patch, undo with Cmd+Z.
+- **Choices I made for you to judge:**
+  - (a) A clean diagram look in dark and light themes: orange for audio, blue (dashed) for
+    control.
+  - (b) Patches without saved positions are laid out left to right by signal flow.
+  - (c) Learn more = the 3D attractor at the box's current parameter + the knob's range +
+    the system page. The pages are drafts and say so.
+  - (d) Every edit is validated by the engine itself, so the editor cannot build a patch the
+    engine would reject.
+  - (e) All UI strings are in `apps/web/src/strings.ts`, ready for translation.
+- Open questions are in `docs/design/web-app.md` §5: visual style, page order, default
+  patch, mobile.
+
 ## C. What to listen to (`lab/outputs/demos/`)
 
 | File | Listen for |

@@ -1,0 +1,50 @@
+/**
+ * Every UI string in one place, so the app can be translated later (the owner plans
+ * Spanish next). Components import `t` and never hard-code text.
+ */
+
+export const t = {
+  appTitle: "chaotic_sound",
+  tagline: "Make music with strange attractors",
+  add: "Add",
+  boxNames: {
+    modulator: "Modulator",
+    dynamical: "Dynamical",
+    sum: "Sum",
+    control_sum: "Control Sum",
+    output: "Output",
+  },
+  play: "Play",
+  stop: "Stop",
+  exportWav: "Export WAV",
+  seconds: "s",
+  newPatch: "New",
+  examples: "Examples",
+  open: "Open…",
+  save: "Save…",
+  undo: "Undo",
+  redo: "Redo",
+  learnMore: "Learn more",
+  close: "Close",
+  system: "System",
+  note: "Note",
+  cents: "Cents",
+  parameter: "Parameter",
+  amp: "Amp",
+  pitchLock: "Pitch lock",
+  perceptualAmp: "Perceptual amp",
+  observable: "Heard variable",
+  shape: "Shape",
+  period: "Period (s)",
+  loop: "Loop",
+  once: "Once",
+  gain: "Gain",
+  volume: "Volume",
+  delete: "Delete box",
+  resets: "safety resets",
+  helpCables:
+    "Drag from an output (right) to an input (left). Orange = audio, blue = control. Control inputs take one cable: combine controllers with a Control Sum box.",
+  audioStartHint: "Press Play to start audio (browsers need a click first).",
+  rendering: "Rendering…",
+  error: "Error",
+} as const;
