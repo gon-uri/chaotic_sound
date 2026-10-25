@@ -1,0 +1,90 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "lfo_param",
+      "type": "modulator",
+      "params": {
+        "shape": "sine",
+        "period_s": 8.0,
+        "mode": "loop"
+      }
+    },
+    {
+      "id": "lfo_amp",
+      "type": "modulator",
+      "params": {
+        "shape": "triangle",
+        "period_s": 4.0,
+        "mode": "loop"
+      }
+    },
+    {
+      "id": "rossler",
+      "type": "dynamical",
+      "params": {
+        "system": "rossler",
+        "note": "A3",
+        "cents": 0.0,
+        "observable": null,
+        "observable_right": null,
+        "pitch_lock": true,
+        "seed": null,
+        "param": null,
+        "amp": 1.0
+      }
+    },
+    {
+      "id": "lorenz",
+      "type": "dynamical",
+      "params": {
+        "system": "lorenz",
+        "note": "E3",
+        "cents": 0.0,
+        "observable": null,
+        "observable_right": null,
+        "pitch_lock": true,
+        "seed": null,
+        "param": null,
+        "amp": 1.0
+      }
+    },
+    {
+      "id": "mix",
+      "type": "sum",
+      "params": {
+        "gain": 0.8
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "params": {
+        "volume": 0.9
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": "lfo_param.out",
+      "to": "rossler.param"
+    },
+    {
+      "from": "lfo_amp.out",
+      "to": "lorenz.amp"
+    },
+    {
+      "from": "rossler.out",
+      "to": "mix.in"
+    },
+    {
+      "from": "lorenz.out",
+      "to": "mix.in"
+    },
+    {
+      "from": "mix.out",
+      "to": "out.in"
+    }
+  ]
+}

@@ -1,0 +1,115 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "lfo",
+      "type": "modulator",
+      "params": {
+        "shape": "triangle",
+        "period_s": 10.0,
+        "mode": "loop"
+      }
+    },
+    {
+      "id": "rossler",
+      "type": "dynamical",
+      "params": {
+        "system": "rossler",
+        "note": "A2",
+        "cents": 0.0,
+        "observable": null,
+        "observable_right": null,
+        "pitch_lock": true,
+        "seed": null,
+        "param": null,
+        "amp": 0.8
+      }
+    },
+    {
+      "id": "chua",
+      "type": "dynamical",
+      "params": {
+        "system": "chua",
+        "note": "E3",
+        "cents": 0.0,
+        "observable": null,
+        "observable_right": null,
+        "pitch_lock": true,
+        "seed": null,
+        "param": null,
+        "amp": 0.6
+      }
+    },
+    {
+      "id": "lorenz",
+      "type": "dynamical",
+      "params": {
+        "system": "lorenz",
+        "note": "A3",
+        "cents": 0.0,
+        "observable": null,
+        "observable_right": null,
+        "pitch_lock": true,
+        "seed": null,
+        "param": null,
+        "amp": 0.6
+      }
+    },
+    {
+      "id": "duffing",
+      "type": "dynamical",
+      "params": {
+        "system": "duffing",
+        "note": "C#4",
+        "cents": 0.0,
+        "observable": null,
+        "observable_right": null,
+        "pitch_lock": true,
+        "seed": null,
+        "param": null,
+        "amp": 0.5
+      }
+    },
+    {
+      "id": "mix",
+      "type": "sum",
+      "params": {
+        "gain": 0.7
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "params": {
+        "volume": 0.9
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": "lfo.out",
+      "to": "lorenz.param"
+    },
+    {
+      "from": "rossler.out",
+      "to": "mix.in"
+    },
+    {
+      "from": "chua.out",
+      "to": "mix.in"
+    },
+    {
+      "from": "lorenz.out",
+      "to": "mix.in"
+    },
+    {
+      "from": "duffing.out",
+      "to": "mix.in"
+    },
+    {
+      "from": "mix.out",
+      "to": "out.in"
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "twin_a",
+      "type": "dynamical",
+      "params": {
+        "system": "rossler",
+        "note": "A3",
+        "cents": 0.0,
+        "observable": null,
+        "observable_right": null,
+        "pitch_lock": true,
+        "seed": null,
+        "param": null,
+        "amp": 1.0
+      }
+    },
+    {
+      "id": "twin_b",
+      "type": "dynamical",
+      "params": {
+        "system": "rossler",
+        "note": "A3",
+        "cents": 0.0,
+        "observable": null,
+        "observable_right": null,
+        "pitch_lock": true,
+        "seed": null,
+        "param": null,
+        "amp": 1.0
+      }
+    },
+    {
+      "id": "mix",
+      "type": "sum",
+      "params": {
+        "gain": 0.6
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "params": {
+        "volume": 1.0
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": "twin_a.out",
+      "to": "mix.in"
+    },
+    {
+      "from": "twin_b.out",
+      "to": "mix.in"
+    },
+    {
+      "from": "mix.out",
+      "to": "out.in"
+    }
+  ]
+}

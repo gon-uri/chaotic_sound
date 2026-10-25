@@ -1,0 +1,47 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "sq",
+      "type": "modulator",
+      "params": {
+        "shape": "square",
+        "period_s": 3.0,
+        "mode": "loop"
+      }
+    },
+    {
+      "id": "chua",
+      "type": "dynamical",
+      "params": {
+        "system": "chua",
+        "note": "D3",
+        "cents": 0.0,
+        "observable": null,
+        "observable_right": null,
+        "pitch_lock": true,
+        "seed": null,
+        "param": null,
+        "amp": 1.0
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "params": {
+        "volume": 1.0
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": "sq.out",
+      "to": "chua.param"
+    },
+    {
+      "from": "chua.out",
+      "to": "out.in"
+    }
+  ]
+}

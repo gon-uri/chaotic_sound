@@ -1,0 +1,47 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "lfo",
+      "type": "modulator",
+      "params": {
+        "shape": "sine",
+        "period_s": 12.0,
+        "mode": "loop"
+      }
+    },
+    {
+      "id": "duffing",
+      "type": "dynamical",
+      "params": {
+        "system": "duffing",
+        "note": "G2",
+        "cents": 0.0,
+        "observable": null,
+        "observable_right": null,
+        "pitch_lock": true,
+        "seed": null,
+        "param": null,
+        "amp": 1.0
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "params": {
+        "volume": 1.0
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": "lfo.out",
+      "to": "duffing.param"
+    },
+    {
+      "from": "duffing.out",
+      "to": "out.in"
+    }
+  ]
+}
