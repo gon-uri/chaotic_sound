@@ -58,6 +58,10 @@ Goal: prove that "tuned chaos" works and sounds interesting before building any 
 
 ## Future ideas (recorded at the owner's request)
 
+- **Tonality knob** (owner's idea, 2026-10-26): from 0 (raw attractor) to 1 (tonal). The tonal
+  part is built from the attractor's own spectrum so it stays unique to each system.
+  Prototyped offline; harmonic resynthesis (design D) is the recommended core. See
+  `docs/ideas/tonal-knob.md`.
 - **Route to chaos**: let the parameter range include periodic regimes and period-doubling
   cascades. Open question: how to tune there. A likely answer is to lock to the mean loop time
   (return time to a Poincaré section). That stays continuous through period doubling, so the

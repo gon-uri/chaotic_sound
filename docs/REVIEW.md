@@ -111,6 +111,15 @@ npm run web   # then open http://localhost:5174
 - Open questions are in `docs/design/web-app.md` §5: visual style, page order, default
   patch, mobile.
 
+## B4. Your tonality-knob idea (prototyped, not implemented)
+
+- Analysis and recommendation: `docs/ideas/tonal-knob.md`.
+- Listen to `lab/outputs/studies/tonal/` (run `uv run python
+  scripts/studies/tonal_prototype.py` from `lab/` to regenerate).
+- In short: the idea is good and very feasible. Design D (harmonic resynthesis) keeps each
+  attractor's brightness at the tonal end, unlike a sine crossfade or plain comb filtering.
+  Three questions for you are at the end of the note.
+
 ## C. What to listen to (`lab/outputs/demos/`)
 
 | File | Listen for |
