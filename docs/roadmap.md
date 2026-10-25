@@ -4,20 +4,22 @@
 
 Repo, docs, decision records, Python lab environment, agent configuration, private GitHub repo.
 
-## Phase 1: Python reference engine and analysis (in progress)
+## Phase 1: Python reference engine and analysis (implemented 2026-10-25; studies and review in progress)
 
 Goal: prove that "tuned chaos" works and sounds interesting before building any UI.
 
-- [ ] Five system definitions, checked against dysts.
-- [ ] RK4 kernels with per-sample time scale and parameter; tests of accuracy and convergence.
-- [ ] Frequency estimation per observable (spectral peak, return times), compared with dysts.
-- [ ] Parameter sweeps: boundedness, Lyapunov exponent, P(u), μ(u), σ(u). Choose chaotic
-      ranges and default observables.
-- [ ] `catalog/systems.json` generated.
-- [ ] Blocks (Modulator, Dynamical, Sum, Output), the patch graph and JSON, offline render, WAV.
-- [ ] Demo patches rendered to WAV, with spectrograms and a written report of what works.
+- [x] Five system definitions, checked against dysts.
+- [x] RK4 kernels with per-sample time scale and parameter; tests of accuracy and convergence.
+- [x] Frequency estimation per observable (spectral peak, return times), compared with dysts.
+- [x] Parameter sweeps: boundedness, Lyapunov exponent, P(u), μ(u), σ(u). Choose chaotic
+      ranges and default observables (`docs/math/tuning.md`, ADR 0010).
+- [x] `catalog/systems.json` generated.
+- [x] Blocks (Modulator, Dynamical, Sum, Output), the patch graph and JSON, offline render, WAV.
+- [x] Demo patches rendered to WAV, with spectrograms and a written report of what works.
 - [ ] Studies: pitch-lock accuracy under modulation, aliasing vs. note (is oversampling
-      needed?), steps-per-period convergence, cost per sample.
+      needed?), steps-per-period convergence, cost per sample (`docs/studies/`).
+- [ ] Decide on Thomas (replace or keep): see `docs/studies/fifth-system-screening.md`.
+- [ ] Listening tests by the owner (does the measured pitch match the perceived one?).
 
 ## Phase 2: real-time engine (after ADR 0002 is accepted)
 

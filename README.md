@@ -5,7 +5,9 @@ chaotic differential equation (Lorenz, Rössler, Chua, …) and is tuned to a mu
 Patching boxes together lets you hear chaos, and each box opens a page on the math and the
 history behind its system.
 
-> Status: early development (Phase 1, the Python reference engine and analysis). Private repository.
+> Status: Phase 1 (Python reference engine and analysis) is implemented: 5 tuned systems, modulators,
+> mixing, offline WAV rendering, catalog of chaotic ranges and tuning tables, 132 tests. The browser
+> engine and UI (Phases 2–3) have not started. Private repository. Open decisions: [`docs/REVIEW.md`](docs/REVIEW.md).
 
 ## Why
 
@@ -29,7 +31,8 @@ WAV. See [`docs/math/tuning.md`](docs/math/tuning.md).
 |---|---|
 | [`lab/`](lab/) | Python package `chaotic_sound`: reference engine, analysis tools, catalog generator |
 | [`catalog/`](catalog/) | Generated data: systems, parameter ranges, tuning tables (the lab → engine contract) |
-| [`docs/`](docs/) | Vision, v1 spec, architecture, decision records, math notes, system pages |
+| [`docs/`](docs/) | Vision, v1 spec, architecture, decision records, math notes, studies, system pages |
+| [`examples/patches/`](examples/patches/) | Demo patches in the patch JSON format (also cross-engine test fixtures) |
 
 ## Quick start (Python lab)
 
