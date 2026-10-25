@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- Browser harness for rk4_bench.js (study: docs/studies/cost.md).
+     1. Run `uv run python scripts/studies/cost.py` once (it writes the config file below).
+     2. Open this file in the browser to test (file:// works: classic <script> tags only).
+     3. The page freezes for ~10-30 s while it runs, then shows the result JSON. Save it as
+        lab/outputs/studies/cost/js_<browser>.json and rerun cost.py to include it. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RK4 box benchmark</title>
+  <style>
+    body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; background: #fff; color: #111; }
+    pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <p id="status">Running… (the page is unresponsive until it finishes)</p>
+  <pre id="out"></pre>
+  <script src="../../outputs/studies/cost/bench_config.js"></script>
+  <script>
+    BENCH_CONFIG.engine = /Firefox\//.test(navigator.userAgent) ? 'firefox'
+      : /Edg\//.test(navigator.userAgent) ? 'edge'
+      : /Chrome\//.test(navigator.userAgent) ? 'chrome'
+      : /Safari\//.test(navigator.userAgent) ? 'safari' : 'browser';
+  </script>
+  <!-- Defer the run by one frame so the status line paints first. -->
+  <script>
+    setTimeout(function () {
+      var s = document.createElement('script');
+      s.src = 'rk4_bench.js';
+      s.onload = function () {
+        document.getElementById('status').textContent =
+          'Done. Save the JSON below as js_' + BENCH_CONFIG.engine + '.json';
+        document.getElementById('out').textContent = JSON.stringify(BENCH_RESULTS, null, 1);
+      };
+      document.body.appendChild(s);
+    }, 50);
+  </script>
+</body>
+</html>

@@ -88,11 +88,21 @@ nothing below is hard to change yet. Items are ordered by impact.
 | `07_twins.wav` | Two identical Rössler boxes: unison at first, then chaos pulls them apart |
 | `08_rossler_A2_to_A5.wav` | Same timbre at four octaves (tuning = time rescaling) |
 
-## D. Results of the background studies
+## D. Results of the background studies (partial: the usage limit was reached)
 
-*To be filled in when the studies finish:* aliasing vs note, integration resolution, compute
-cost, modulation rate, and the screening of replacement candidates for Thomas (all in
-`docs/studies/`).
+- **Fifth-system screening.** The top candidate to replace Thomas is the **Rikitake dynamo** (1958,
+  geophysics: Earth's magnetic-field reversals). It modulates `a`, is chaotic across a wide range
+  with no windows, has a smooth P(u), tunes on z (prominence ≈0.5) within a few cents, and had 0
+  resets. Its caveat is a high crest factor (peaks up to 1.3 at RMS 0.25). Runners-up: Rucklidge
+  (convection, close to Lorenz) and Moore–Spiegel (1966 astrophysics; weakly chaotic). Raw
+  results: `lab/outputs/review/studies-result.txt`. The synthesis report may be in `docs/studies/`.
+- **Aliasing, resolution, cost and modulation studies**: drafts in `docs/studies/` and
+  `lab/scripts/studies/`. Each was reviewed ("minor issues"), but the final revision step did not
+  run because of the usage limit. Treat the numbers as unrevised drafts.
+- **Code review** of the engine: done, with adversarially verified findings, but **not yet
+  fixed**. Raw results: `lab/outputs/review/engine-review-result.txt` (local, not committed).
+  Examples: the spec should pin the modulator's floating-point phase formula (low severity), and
+  patch JSON writes `null` for defaulted params, which spec §5 does not define (medium).
 
 ## E. Setup choices
 
