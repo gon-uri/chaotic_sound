@@ -10,7 +10,7 @@ export class Sum implements BlockRuntime {
   readonly spec = BLOCK_SPECS.sum;
   readonly outputs: readonly PortSignal[];
   readonly id: string;
-  private readonly gain: number;
+  private gain: number;
   private readonly left: Float64Array;
   private readonly right: Float64Array;
 
@@ -20,6 +20,12 @@ export class Sum implements BlockRuntime {
     this.left = new Float64Array(ctx.maxFrames);
     this.right = new Float64Array(ctx.maxFrames);
     this.outputs = [[this.left, this.right]];
+  }
+
+  setParam(name: string, value: ParamValue | undefined): boolean {
+    if (name !== "gain") return false;
+    this.gain = (value ?? 1) as number;
+    return true;
   }
 
   reset(): void {}
@@ -44,7 +50,7 @@ export class ControlSum implements BlockRuntime {
   readonly spec = BLOCK_SPECS.control_sum;
   readonly outputs: readonly PortSignal[];
   readonly id: string;
-  private readonly gain: number;
+  private gain: number;
   private readonly out: Float64Array;
 
   constructor(id: string, params: Record<string, ParamValue>, ctx: BlockContext) {
@@ -52,6 +58,12 @@ export class ControlSum implements BlockRuntime {
     this.gain = (params.gain ?? 1) as number;
     this.out = new Float64Array(ctx.maxFrames);
     this.outputs = [[this.out]];
+  }
+
+  setParam(name: string, value: ParamValue | undefined): boolean {
+    if (name !== "gain") return false;
+    this.gain = (value ?? 1) as number;
+    return true;
   }
 
   reset(): void {}
@@ -76,7 +88,7 @@ export class Output implements BlockRuntime {
   readonly outputs: readonly PortSignal[] = [];
   readonly main: PortSignal;
   readonly id: string;
-  private readonly volume: number;
+  private volume: number;
   private readonly left: Float64Array;
   private readonly right: Float64Array;
 
@@ -86,6 +98,12 @@ export class Output implements BlockRuntime {
     this.left = new Float64Array(ctx.maxFrames);
     this.right = new Float64Array(ctx.maxFrames);
     this.main = [this.left, this.right];
+  }
+
+  setParam(name: string, value: ParamValue | undefined): boolean {
+    if (name !== "volume") return false;
+    this.volume = (value ?? 0.8) as number;
+    return true;
   }
 
   reset(): void {}

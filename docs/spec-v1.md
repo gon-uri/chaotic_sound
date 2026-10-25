@@ -257,6 +257,13 @@ connected, out = 0. gain = 0.5 averages two inputs.
 - All blocks start at t = 0 when playback or a render starts.
 - **Determinism**: the same patch, sample rate and length give bit-identical output within an
   engine.
+- **Live parameter changes** (real-time engines, `EnginePort.setParam`):
+  - Knobs (`param`, `amp`, `gain`, `volume`) and the pitch settings (`note`, `cents`,
+    `pitch_min`, `pitch_max`, `pitch_lock`, `amp_curve`) update inside the running block.
+    The block keeps its state, and the step 2 smoothers make the change gentle.
+  - Other settings (`system`, `observable`, `observable_right`, `seed`, modulator settings)
+    recreate the block from t = 0.
+  - Blocks that are not edited are never reset.
 - **Across engines:**
   - the first ~2000 samples agree to about 1e-9 (implementations differ only in the last
     bits of libm functions);

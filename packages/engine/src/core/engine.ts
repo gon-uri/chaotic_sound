@@ -15,6 +15,7 @@ import {
   type PatchDocument,
   type PatchEdit,
   PatchError,
+  validateParams,
 } from "./patch.ts";
 
 export interface EngineOptions {
@@ -57,7 +58,29 @@ export class Engine implements EnginePort {
     this.install(applyEdit(this.doc, e), false);
   }
 
+  /**
+   * Change one parameter. Knobs (param, amp, gain, volume) and pitch settings are applied
+   * live inside the existing block, which keeps its state; anything else recreates the block.
+   */
   setParam(blockId: string, name: string, value: ParamValue | null): void {
+    const doc = this.doc;
+    if (doc === null) throw new PatchError("no patch loaded");
+    const index = doc.blocks.findIndex((b) => b.id === blockId);
+    const entry = doc.blocks[index];
+    const block = this.blocks.get(blockId);
+    if (entry === undefined || block === undefined) {
+      throw new PatchError(`no block with id ${JSON.stringify(blockId)}`);
+    }
+    const params: Record<string, ParamValue | null> = { ...(entry.params ?? {}), [name]: value };
+    const clean = validateParams(blockId, entry.type, params); // throws on invalid values
+    if (block.setParam?.(name, clean[name]) === true) {
+      const updated: BlockJson = { ...entry, params: clean };
+      const blocks = doc.blocks.slice();
+      blocks[index] = updated;
+      this.doc = { ...doc, blocks };
+      this.blockKeys.set(blockId, blockKey(updated));
+      return;
+    }
     this.edit({ op: "setParams", id: blockId, params: { [name]: value } });
   }
 

@@ -145,3 +145,54 @@ test("WAV encoding", () => {
   expect(v.getInt16(44 + 4 * 3, true)).toBe(0); // 0.5 rounds half to even
   expect(v.getInt16(44 + 4 * 3 + 2, true)).toBe(2); // 1.5 rounds half to even
 });
+
+describe("live parameter changes", () => {
+  test("knobs change live without restarting the oscillator", () => {
+    const doc = single({ system: "lorenz", param: 0.4 });
+    const live = new Engine({ maxFrames: 256 });
+    live.load(doc, catalog, FS);
+    const ref = new Engine({ maxFrames: 256 });
+    ref.load(doc, catalog, FS);
+    const buf = () => [new Float64Array(4800), new Float64Array(4800)] as const;
+    const [a, b] = buf();
+    const [c, d] = buf();
+    live.process(4800, a, b);
+    ref.process(4800, c, d);
+    // Setting the same value live must be a no-op (state kept, no restart).
+    live.setParam("osc", "param", 0.4);
+    const [l1, r1] = buf();
+    const [l2, r2] = buf();
+    live.process(4800, l1, r1);
+    ref.process(4800, l2, r2);
+    expect(Array.from(l1)).toEqual(Array.from(l2));
+    // A new value changes the sound gradually (the slew smoother), from where it was.
+    live.setParam("osc", "param", 0.9);
+    live.setParam("osc", "amp", 0.5);
+    live.setParam("out", "volume", 0.2);
+    live.setParam("osc", "note", "E3");
+    const [l3, r3] = buf();
+    live.process(4800, l3, r3);
+    expect(Math.abs(l3[0]! - l2[l2.length - 1]!)).toBeLessThan(0.05); // no jump
+    expect(live.patch?.blocks[0]?.params).toEqual({
+      system: "lorenz",
+      param: 0.9,
+      amp: 0.5,
+      note: "E3",
+    });
+    expect(live.diagnostics()).toEqual({ osc: { safety_resets: 0 } });
+  });
+
+  test("structural settings recreate the block; invalid values are rejected", () => {
+    const e = new Engine({ maxFrames: 128 });
+    e.load(single({ system: "lorenz" }), catalog, FS);
+    expect(() => e.setParam("osc", "param", 2)).toThrow(/wrong type or value/);
+    expect(() => e.setParam("osc", "note", "C9")).toThrow(/C0 and C8/);
+    expect(() => e.setParam("nope", "amp", 1)).toThrow(/no block/);
+    e.setParam("osc", "system", "chua"); // recreates the box
+    const l = new Float64Array(256);
+    const r = new Float64Array(256);
+    e.process(256, l, r);
+    expect(Number.isFinite(l[255]!)).toBe(true);
+    expect(e.patch?.blocks[0]?.params).toEqual({ system: "chua" });
+  });
+});

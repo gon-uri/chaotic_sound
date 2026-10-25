@@ -38,6 +38,19 @@ function blockError(id: string, msg: string): PatchError {
   return new PatchError(`dynamical '${id}': ${msg}`);
 }
 
+/** MIDI number of a note setting, restricted to C0 … C8 (spec §4.2). */
+function noteToMidiChecked(id: string, name: string, value: string): number {
+  let m: number;
+  try {
+    m = noteToMidi(value);
+  } catch (e) {
+    throw blockError(id, (e as Error).message);
+  }
+  if (m < NOTE_MIN || m > NOTE_MAX)
+    throw blockError(id, `${name} must be between C0 and C8, got ${value}`);
+  return m;
+}
+
 export class Dynamical implements BlockRuntime {
   readonly type = "dynamical" as const;
   readonly spec = BLOCK_SPECS.dynamical;
@@ -47,14 +60,17 @@ export class Dynamical implements BlockRuntime {
   readonly entry: CatalogEntry;
   readonly observable: string;
   readonly observableRight: string | null;
-  readonly knobParam: number;
-  readonly knobAmp: number;
-  readonly frequencyHz: number;
-  readonly pitchLock: boolean;
-  readonly perceptual: boolean;
+  // Live-editable settings (see setParam): knobs and pitch settings change without a reset.
+  knobParam: number;
+  knobAmp: number;
+  frequencyHz: number;
+  pitchLock: boolean;
+  perceptual: boolean;
+  private note: string;
+  private cents: number;
   readonly seed: number;
-  private readonly midiMin: number;
-  private readonly midiMax: number;
+  private midiMin: number;
+  private midiMax: number;
   private readonly obsIndex: number;
   private readonly rightIndex: number;
   private readonly modIndex: number;
@@ -114,18 +130,7 @@ export class Dynamical implements BlockRuntime {
     const note = (params.note ?? "A3") as string;
     const pitchMin = (params.pitch_min ?? "A1") as string;
     const pitchMax = (params.pitch_max ?? "A5") as string;
-    const midi = (name: string, value: string): number => {
-      let m: number;
-      try {
-        m = noteToMidi(value);
-      } catch (e) {
-        throw blockError(id, (e as Error).message);
-      }
-      if (m < NOTE_MIN || m > NOTE_MAX) {
-        throw blockError(id, `${name} must be between C0 and C8, got ${value}`);
-      }
-      return m;
-    };
+    const midi = (name: string, value: string): number => noteToMidiChecked(id, name, value);
     midi("note", note);
     this.midiMin = midi("pitch_min", pitchMin);
     this.midiMax = midi("pitch_max", pitchMax);
@@ -151,7 +156,9 @@ export class Dynamical implements BlockRuntime {
     this.rightIndex = right === null ? -1 : system.variables.indexOf(right);
     this.knobParam = params.param === undefined ? entry.uDefault : (params.param as number);
     this.knobAmp = (params.amp ?? 1) as number;
-    this.frequencyHz = noteToHz(note, (params.cents ?? 0) as number);
+    this.note = note;
+    this.cents = (params.cents ?? 0) as number;
+    this.frequencyHz = noteToHz(note, this.cents);
     this.pitchLock = (params.pitch_lock ?? true) as boolean;
     this.perceptual = (params.amp_curve ?? "perceptual") === "perceptual";
     this.seed = params.seed === undefined ? stableSeed(id) : (params.seed as number);
@@ -304,6 +311,60 @@ export class Dynamical implements BlockRuntime {
         PEAK_TARGET / e.peak(observable, u),
       );
       y[i] = gain * scale * (this.traj[i * dim + index]! - e.mean(observable, u));
+    }
+  }
+
+  /**
+   * Change a setting live, keeping the oscillator's state (the declick smoothers make the
+   * change gentle). Returns false for settings that need a new block (system, observables,
+   * seed). `value === undefined` restores the default. Throws PatchError on invalid values.
+   */
+  setParam(name: string, value: ParamValue | undefined): boolean {
+    switch (name) {
+      case "param":
+        this.knobParam = value === undefined ? this.entry.uDefault : (value as number);
+        return true;
+      case "amp":
+        this.knobAmp = (value ?? 1) as number;
+        return true;
+      case "pitch_lock":
+        this.pitchLock = (value ?? true) as boolean;
+        return true;
+      case "amp_curve":
+        this.perceptual = (value ?? "perceptual") === "perceptual";
+        return true;
+      case "note":
+      case "cents": {
+        const note = name === "note" ? ((value ?? "A3") as string) : this.note;
+        const cents = name === "cents" ? ((value ?? 0) as number) : this.cents;
+        noteToMidiChecked(this.id, "note", note); // validates the name and the C0–C8 range
+        const f = noteToHz(note, cents);
+        if (!(f < this.sampleRate / 2))
+          throw blockError(this.id, `${f.toFixed(1)} Hz is not below Nyquist`);
+        this.note = note;
+        this.cents = cents;
+        this.frequencyHz = f;
+        return true;
+      }
+      case "pitch_min":
+      case "pitch_max": {
+        const lo =
+          name === "pitch_min"
+            ? noteToMidiChecked(this.id, name, (value ?? "A1") as string)
+            : this.midiMin;
+        const hi =
+          name === "pitch_max"
+            ? noteToMidiChecked(this.id, name, (value ?? "A5") as string)
+            : this.midiMax;
+        if (lo >= hi) throw blockError(this.id, "pitch_min must be lower than pitch_max");
+        if (!(midiToHz(hi) < this.sampleRate / 2))
+          throw blockError(this.id, "pitch_max is not below Nyquist");
+        this.midiMin = lo;
+        this.midiMax = hi;
+        return true;
+      }
+      default:
+        return false;
     }
   }
 

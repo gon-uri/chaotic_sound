@@ -59,6 +59,34 @@ to 215 tests.
    - Vitest;
    - Biome (one tool for lint and format, like ruff).
 
+## B2. Phase 2 (TypeScript engine), new and ready to try
+
+```bash
+npm install          # once
+npm run playground   # then open http://localhost:5173, pick a patch, press Play
+```
+
+- **What exists:**
+  - `packages/engine`: a hexagonal core, ports and adapters (ADR 0011);
+  - `apps/playground`: a developer page that plays every example patch live in the browser,
+    with live knobs and WAV export.
+- **Parity with Python:** on all 15 fixtures, the initial states are bit-identical and the
+  first 2048 samples agree to ≤ 3e-13 (usually exactly). The long-run statistics match.
+- **Speed:** in Node, 20 s of your two-voice example renders in 0.7 s. In the browser, the
+  worklet renders in real time with no errors.
+- **Choices to check:**
+  - (a) No build step: Node runs the TypeScript directly; Vite bundles it for the browser.
+  - (b) The playground is a developer tool, not the Phase 3 editor.
+  - (c) Live edits:
+    - Knobs and the pitch settings change inside the running box, which keeps playing
+      without a restart.
+    - Structural settings (system, observable, seed, modulator settings) recreate that box.
+    - Boxes that are not edited are never reset.
+
+    See spec §6.
+  - (d) An independent multi-lens review of the TS engine is running; its confirmed findings
+    will be fixed and summarized here.
+
 ## C. What to listen to (`lab/outputs/demos/`)
 
 | File | Listen for |

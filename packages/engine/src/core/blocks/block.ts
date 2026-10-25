@@ -8,7 +8,7 @@
  */
 
 import type { Catalog } from "../catalog.ts";
-import type { BlockSpec, BlockType } from "../patch.ts";
+import type { BlockSpec, BlockType, ParamValue } from "../patch.ts";
 
 /** What a block may receive from outside (the catalog is data, not a file). */
 export interface BlockContext {
@@ -34,4 +34,9 @@ export interface BlockRuntime {
   process(n: number, inputs: readonly (PortSignal | null)[]): void;
   /** Counters reported after a render (e.g. safety resets). */
   diagnostics(): Record<string, number>;
+  /**
+   * Apply a (validated) parameter change live, keeping state. Returns false if the block
+   * must be recreated instead. Optional: blocks without live settings omit it.
+   */
+  setParam?(name: string, value: ParamValue | undefined): boolean;
 }
