@@ -10,7 +10,9 @@
     "./wav": "./src/adapters/wav.ts",
     "./worklet": "./src/adapters/worklet/processor.ts",
     "./worklet/protocol": "./src/adapters/worklet/protocol.ts",
-    "./node": "./src/adapters/node/index.ts"
+    "./node": "./src/adapters/node/index.ts",
+    "./worker": "./src/adapters/worker/render-worker.ts",
+    "./worker/protocol": "./src/adapters/worker/protocol.ts"
   },
   "scripts": {
     "test": "vitest run",

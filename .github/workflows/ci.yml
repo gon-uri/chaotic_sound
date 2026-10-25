@@ -1,0 +1,29 @@
+# Runs both test suites. To save GitHub Actions minutes on this private repository it runs
+# on pull requests and on demand (Actions tab → CI → Run workflow). To run on every push to
+# main, add `push: { branches: [main] }` under `on:`.
+name: CI
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: lab } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: uv run ruff check . && uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run pytest -q
+
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - run: npm run check
+      - run: npm test

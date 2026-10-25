@@ -32,8 +32,10 @@ Goal: prove that "tuned chaos" works and sounds interesting before building any 
 - [x] Adapters: Node CLI renderer + WAV, AudioWorklet processor, offline renderer.
 - [x] A developer playground (`apps/playground`) to hear the patches live in the browser.
 - [ ] Independent review of the TS engine and its fixes (in progress).
-- [ ] Offline rendering in a Web Worker (the playground renders WAVs on the main thread for
-      now).
+- [x] Offline rendering in a Web Worker (`adapters/worker/`): WAV export off the UI thread,
+      10 s in about 0.3 s in the browser.
+- [x] CI workflow (`.github/workflows/ci.yml`): both test suites, on pull requests and on
+      demand.
 
 ## Phase 3: web app MVP (next)
 

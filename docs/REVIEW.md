@@ -86,6 +86,9 @@ npm run playground   # then open http://localhost:5173, pick a patch, press Play
     See spec §6.
   - (d) An independent multi-lens review of the TS engine is running; its confirmed findings
     will be fixed and summarized here.
+  - (e) **CI** (`.github/workflows/ci.yml`) runs both test suites, but only on pull requests
+    and on demand, to save Actions minutes on the private repo. Running it on every push is a
+    one-line change. Do you want that?
 
 ## C. What to listen to (`lab/outputs/demos/`)
 

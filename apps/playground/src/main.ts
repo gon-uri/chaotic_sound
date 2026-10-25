@@ -4,8 +4,7 @@
  */
 
 import type { CatalogDocument, PatchDocument } from "@chaotic-sound/engine";
-import { renderOffline } from "@chaotic-sound/engine/offline";
-import { encodeWav } from "@chaotic-sound/engine/wav";
+import type { RenderRequest, RenderResponse } from "@chaotic-sound/engine/worker/protocol";
 import {
   type FromWorklet,
   PROCESSOR_NAME,
@@ -13,6 +12,7 @@ import {
 } from "@chaotic-sound/engine/worklet/protocol";
 // Vite compiles the processor (and the core it imports) into one module and gives its URL.
 import processorUrl from "@chaotic-sound/engine/worklet?worker&url";
+import renderWorkerUrl from "@chaotic-sound/engine/worker?worker&url";
 import catalogJson from "../../../catalog/systems.json";
 
 const catalog = catalogJson as unknown as CatalogDocument;
@@ -112,17 +112,29 @@ select.addEventListener("change", () => {
   if (ctx !== null) void play();
 });
 $<HTMLButtonElement>("wav").addEventListener("click", () => {
-  status.textContent = "rendering…";
-  // Rendering 10 s takes about half a second; a Web Worker would keep the page responsive.
-  setTimeout(() => {
-    const t0 = performance.now();
-    const r = renderOffline(currentPatch(), catalog, { seconds: 10, sampleRate: 48_000 });
-    const blob = new Blob([encodeWav(r.left, r.right, r.sampleRate)], { type: "audio/wav" });
+  status.textContent = "rendering 10 s in a Web Worker…";
+  const worker = new Worker(renderWorkerUrl, { type: "module" });
+  worker.onmessage = (e: MessageEvent<RenderResponse>) => {
+    const m = e.data;
+    worker.terminate();
+    if (m.type === "error") {
+      status.textContent = `render failed: ${m.message}`;
+      return;
+    }
     const a = Object.assign(document.createElement("a"), {
-      href: URL.createObjectURL(blob),
+      href: URL.createObjectURL(new Blob([m.wav], { type: "audio/wav" })),
       download: `${select.selectedOptions[0]?.textContent ?? "patch"}.wav`,
     });
     a.click();
-    status.textContent = `rendered 10 s in ${((performance.now() - t0) / 1000).toFixed(2)} s`;
-  }, 10);
+    status.textContent = `rendered ${m.seconds} s in ${(m.renderMs / 1000).toFixed(2)} s · ${JSON.stringify(m.diagnostics)}`;
+  };
+  const request: RenderRequest = {
+    type: "render",
+    patch: currentPatch(),
+    catalog,
+    seconds: 10,
+    sampleRate: 48_000,
+    format: "pcm16",
+  };
+  worker.postMessage(request);
 });
