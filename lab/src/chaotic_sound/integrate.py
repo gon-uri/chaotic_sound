@@ -6,6 +6,12 @@ All kernels are numba ``@njit`` functions that take the system's RHS as their fi
 Time units: ``h``, ``dtau`` and ``h_max`` are in **system time** τ (the ODE's own units).
 Seconds only appear in the thin Python wrappers, through the sample rate.
 
+Caching: kernels that take the RHS as an argument are compiled per process and NOT cached on
+disk. numba would have to pickle the RHS dispatcher's type into a cache index shared by all
+processes, which breaks as soon as another process compiled a different (e.g. dynamically
+generated) RHS. Compilation takes about a second per system; the RHS functions themselves and
+the DSP kernels are cached.
+
 Why fixed-step RK4 (and not an adaptive solver)? Audio needs a predictable cost per sample,
 and the time scale ``k`` can change every sample. Classical RK4 at ≥ 256 steps per
 characteristic period is far more accurate than audio needs (see ``docs/math/tuning.md``).
@@ -25,7 +31,7 @@ from chaotic_sound.systems.base import SystemDef
 TWO_PI = 2.0 * math.pi
 
 
-@njit(cache=True)
+@njit
 def rk4_step(rhs, x, p, h, k1, k2, k3, k4, tmp):  # type: ignore[no-untyped-def]
     """Advance ``x`` in place by one classical RK4 step of size ``h`` (system time).
 
@@ -54,7 +60,7 @@ def wrap_phases(x, wrap):  # type: ignore[no-untyped-def]
             x[i] = x[i] % TWO_PI
 
 
-@njit(cache=True)
+@njit
 def integrate_sampled(rhs, x, p, h, steps_per_sample, out, wrap):  # type: ignore[no-untyped-def]
     """Integrate with fixed step ``h`` and record the state every ``steps_per_sample`` steps.
 
@@ -87,7 +93,7 @@ def integrate_sampled(rhs, x, p, h, steps_per_sample, out, wrap):  # type: ignor
             out[i, j] = x[j]
 
 
-@njit(cache=True)
+@njit
 def render_tuned(  # type: ignore[no-untyped-def]
     rhs, x, p, mod_index, p_values, dtau, h_max, wrap, lo, hi, x_reset, out
 ):
@@ -157,7 +163,7 @@ def render_tuned(  # type: ignore[no-untyped-def]
     return resets
 
 
-@njit(cache=True)
+@njit
 def max_lyapunov_kernel(  # type: ignore[no-untyped-def]
     rhs, x, p, h, n_transient, n_renorm, steps_per_renorm, d0, wrap
 ):
