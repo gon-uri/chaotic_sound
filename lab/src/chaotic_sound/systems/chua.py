@@ -33,6 +33,7 @@ CHUA = SystemDef(
     candidate_range=(8.0, 20.0),
     rhs=chua_rhs,
     dysts_name="Chua",
+    period_hint=1.4235,
     equations_latex=(
         r"\dot x = \alpha\,(y - x - h(x)),\quad \dot y = x - y + z,\quad \dot z = -\beta y,"
         r"\quad h(x) = m_1 x + \tfrac12 (m_0 - m_1)\left(|x+1| - |x-1|\right)"

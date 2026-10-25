@@ -30,6 +30,7 @@ THOMAS = SystemDef(
     candidate_range=(0.5, 2.5),
     rhs=thomas_rhs,
     dysts_name="Thomas",
+    period_hint=4.969,
     equations_latex=(
         r"\dot x = -a x + b \sin y,\quad \dot y = -a y + b \sin z,\quad \dot z = -a z + b \sin x"
     ),

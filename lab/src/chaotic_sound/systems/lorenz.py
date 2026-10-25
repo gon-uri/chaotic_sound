@@ -25,9 +25,10 @@ LORENZ = SystemDef(
     default_params=(10.0, 28.0, 2.667),
     initial_condition=(-9.7869288, -15.03852, 20.533978),
     modulated_param="rho",
-    candidate_range=(20.0, 80.0),
+    candidate_range=(24.8, 80.0),
     rhs=lorenz_rhs,
     dysts_name="Lorenz",
+    period_hint=1.5008,
     equations_latex=(
         r"\dot x = \sigma (y - x),\quad \dot y = x(\rho - z) - y,\quad \dot z = x y - \beta z"
     ),

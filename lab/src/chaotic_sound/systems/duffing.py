@@ -31,6 +31,7 @@ DUFFING = SystemDef(
     candidate_range=(0.1, 0.8),
     rhs=duffing_rhs,
     dysts_name="Duffing",
+    period_hint=7.4496,
     phase_indices=(2,),
     drive_frequency_param="omega",
     equations_latex=(

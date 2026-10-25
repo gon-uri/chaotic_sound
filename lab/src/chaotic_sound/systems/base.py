@@ -53,6 +53,9 @@ class SystemDef:
         The numba-compiled right-hand side (see module docstring).
     dysts_name
         Class name of the same system in dysts, used by the tests and the catalog builder.
+    period_hint
+        Rough time scale in system time (dysts' ``period`` estimate). The lab uses it only to
+        choose step sizes and analysis windows before measuring the real period.
     phase_indices
         Indices of variables that are angles (wrapped modulo 2π, never heard).
     drive_frequency_param
@@ -72,6 +75,7 @@ class SystemDef:
     candidate_range: tuple[float, float]
     rhs: Any  # numba dispatcher implementing RhsFunc
     dysts_name: str
+    period_hint: float
     phase_indices: tuple[int, ...] = ()
     drive_frequency_param: str | None = None
     equations_latex: str = ""

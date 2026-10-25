@@ -28,5 +28,6 @@ ROSSLER = SystemDef(
     candidate_range=(3.0, 12.0),
     rhs=rossler_rhs,
     dysts_name="Rossler",
+    period_hint=5.9086,
     equations_latex=r"\dot x = -y - z,\quad \dot y = x + a y,\quad \dot z = b + z (x - c)",
 )

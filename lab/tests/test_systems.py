@@ -52,3 +52,10 @@ def test_systemdef_helpers() -> None:
     assert duffing.audio_variables == ("x", "y")
     assert duffing.drive_period() == pytest.approx(2 * np.pi / 1.4)
     assert lorenz.drive_period() is None
+
+
+@pytest.mark.parametrize("name", list_systems())
+def test_period_hint_is_dysts_period(name: str) -> None:
+    system = get_system(name)
+    ref = getattr(dysts_flows, system.dysts_name)()
+    assert system.period_hint == pytest.approx(ref.period, rel=1e-4)

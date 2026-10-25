@@ -33,6 +33,7 @@ HARMONIC = SystemDef(
     candidate_range=(0.5, 2.0),
     rhs=harmonic_rhs,
     dysts_name="",
+    period_hint=6.283,
 )
 
 
