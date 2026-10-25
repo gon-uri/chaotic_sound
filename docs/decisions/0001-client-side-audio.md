@@ -1,6 +1,6 @@
 # 0001. All sound is generated in the browser; the site is static
 
-- Status: Accepted (provisional, pending owner review)
+- Status: Accepted (owner, 2026-10-26)
 - Date: 2026-10-25
 
 ## Context

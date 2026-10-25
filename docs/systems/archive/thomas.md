@@ -43,25 +43,25 @@ The knob moves the damping $a$, that is, the friction $\beta = a/10$. Here is wh
 |---|---|
 | $> 1$ | Everything settles at the origin. |
 | $1$ | Pitchfork bifurcation: the origin becomes unstable and two stable equilibria appear on the diagonal $x = y = z$ [2]. |
-| $\approx 0.329$ | Hopf bifurcation: both equilibria lose stability at once, and each gives birth to a steady oscillation (a mirror-image pair) [2]. |
-| $0.329$–$0.208$ | The cycles grow and period-double, in a sequence more intricate than a plain cascade, with period-three-like windows [8]. Several cycles can coexist: four at 0.220, six at 0.204 [2]. |
+| $\approx 0.329$ | Hopf bifurcation: a stable limit cycle is born [2]. Because the two equilibria are mirror images, they bifurcate together, so the cycles come as a mirror-image pair (our inference from the symmetry). |
+| $0.329$–$0.208$ | The cycles grow and period-double, in a sequence more intricate than a plain cascade, with period-three-like windows [8]. Several cycles can coexist, for example four at 0.220 [2]. |
 | $\approx 0.208$ | A band of chaos sets in [2]. |
-| $0.203$, $0.2$ | Coexisting strange attractors: six at 0.203 [2], two at 0.2 [4]. Slightly past the onset of chaos such attractors generally merge into one [2]. |
-| $0.19$ | An intricate but stable periodic orbit [4]. |
-| $0.18$ | A single chaotic attractor [4]. Sprott & Chlouverakis place an interior crisis near this value, after which a new stable cycle appears; they find three coexisting cycles at 0.173 [2]. |
+| $0.204$–$0.2$ | Many attractors coexist: six limit cycles at 0.204 and six strange attractors at 0.203 [2], two strange attractors at 0.2 ([4], citing [3]). A little past the onset of chaos, such attractors generally collide and merge into one [2]. |
+| $0.19$ | An intricate but stable periodic orbit ([4], citing [3]). |
+| $0.18$ | A single chaotic attractor ([4], citing [3]). Sprott & Chlouverakis place an interior crisis near this value, after which a new stable cycle appears; they find three coexisting cycles at 0.173 [2]. |
 | $0.18$–$0.11$ | More crises, cycles and chaotic bands. Below about 0.11 chaos dominates and the dimension rises smoothly towards 3 [2]. |
-| $0$ | No friction. The flow conserves volume, its equilibria form an infinite lattice at $(l\pi, m\pi, n\pi)$, and trajectories wander through it in a "chaotic walk" [3]. This is the limiting case of what Thomas called *labyrinth chaos*, a term that also covers the damped attractors weaving among many unstable equilibria [1, 2]. |
+| $0$ | No friction. The flow conserves volume [2], its equilibria form an infinite lattice at $(l\pi, m\pi, n\pi)$ [1, 2], and trajectories wander through it in a "chaotic walk" [3]. This is the limiting case of what Thomas called *labyrinth chaos*, a term that also covers the damped attractors weaving among many unstable equilibria [1, 2]. |
 
 At $\beta = 0$ the walk spreads slightly faster than ordinary diffusion (Hurst exponent ≈ 0.61) [2]. The app's knob covers $\beta \approx 0.178$–$0.195$, the busiest part of the table, which is why the usable band is narrow and full of windows.
 
 ## Properties
 
-- **Attractor:** a single strange attractor at the default. It weaves among 27 unstable equilibria, a 3×3×3 block of Thomas's lattice: the origin, a pair on the diagonal at $x = y = z \approx \pm 2.63$, and 24 others (our numerical count).
-- **Dimension:** our $\lambda$ gives a Kaplan–Yorke dimension of about 2.08 (exponents $\lambda$, 0, $-3a-\lambda$); dysts lists 2.13. Sprott & Chlouverakis find about 2.16 at $\beta = 0.1$ [2].
+- **Attractor:** a single strange attractor at the default. It weaves among 27 unstable equilibria, a 3×3×3 block of Thomas's lattice: the origin, a pair on the diagonal at $x = y = z \approx \pm 2.63$, and 24 others, one near each lattice point $(l\pi, m\pi, n\pi)$ with $l, m, n \in \{-1, 0, 1\}$ (our own calculation).
+- **Dimension:** our $\lambda$ gives an estimated Kaplan–Yorke dimension of about 2.08 (assuming exponents $\lambda$, 0, $-3a-\lambda$); dysts lists 2.13. Sprott & Chlouverakis find about 2.16 at $\beta = 0.1$ [2].
 - **Symmetries:** cyclic, $(x,y,z)\mapsto(y,z,x)$, and inversion, $(x,y,z)\mapsto(-x,-y,-z)$. An attractor lacking part of this symmetry must coexist with its copies, one source of multistability.
 - **Dissipation:** the divergence is constant, $-3a = -5.55$ per dysts time unit. Phase-space volume shrinks by a factor of about $2\times10^{-4}$ per oscillation, and the dissipation vanishes as $\beta \to 0$.
 - **Phase coherence:** low. At the default, the spectrum of $x$ has a peak prominence of only about 0.1–0.25 and no sharp line. The trajectory hops between neighbouring cells instead of circling one centre.
-- **Lyapunov exponents:** we measure $\lambda_{\max} \approx 0.494$ per dysts time unit (0.049 per classical unit). dysts lists a maximum exponent of 0.632, about 28% above ours, and a separate spectrum estimate $(0.76, 0.06, -6.42)$ whose leading entry is higher still; since the middle exponent of such a flow is exactly 0, these figures are rough. Per oscillation $\lambda P \approx 0.76$: nearby trajectories roughly double their separation every cycle.
+- **Lyapunov exponents:** our coarse sweep measures $\lambda_{\max} \approx 0.494$ per dysts time unit at the default (0.049 per classical unit); the app's finer table gives 0.481. dysts lists a maximum exponent of 0.632, roughly 30% above ours, and a separate spectrum estimate $(0.76, 0.06, -6.42)$ whose leading entry is higher still. Since the middle exponent of such a flow is exactly 0, these figures are rough. Per oscillation $\lambda P \approx 0.8$: nearby trajectories roughly double their separation every cycle.
 - **Boundedness:** because $\dot{x} = \sin y - \beta x$, $|x|$ cannot stay above $1/\beta$. Every trajectory ends up inside the cube $|x|,|y|,|z| \le 1/\beta \approx 5.4$, so integration is safe.
 
 ## History
@@ -72,19 +72,19 @@ At $\beta = 0$ the walk spreads slightly faster than ordinary diffusion (Hurst e
 
 With Otto Rössler, Vasileios Basios and others, Thomas extended the idea to more variables, obtaining hyperchaos of any order and chaotic walks (2004) [3]. In their detailed 2007 study, Sprott and Chlouverakis credit Thomas with bringing the system to their attention [2].
 
-**Music.** Basios and Antonopoulos remember him as an amateur astronomer, full of stories from past climbing expeditions, who never stopped talking about music; his favourite composer was Haydn [4]. He also played the oboe as an amateur and later studied the theory of musical temperaments [9]. Fittingly, Haydn's oratorio *The Creation* opens with an orchestral "Representation of Chaos" [13]. The system has since reached electronic music, for example as a "Thomas Attractor" modulation-source module for Cherry Audio's Voltage Modular [10].
+**Music.** Basios and Antonopoulos remember him as an amateur astronomer, full of stories from past climbing expeditions, who never stopped talking about music; his favourite composer was Haydn [4, 9]. He also played the oboe as an amateur and later studied the theory of musical temperaments [9]. Fittingly, Haydn's oratorio *The Creation* opens with an orchestral "Representation of Chaos" [13]. The system has since reached electronic music, for example as a "Thomas Attractor" modulation-source module for Cherry Audio's Voltage Modular [10].
 
 ## In chaotic_sound
 
 Numbers below are in dysts time units.
 
 - **Range.** The knob sweeps $a$ from 1.783 to 1.945 ($\beta \approx 0.178$–$0.195$); the default 1.85 sits at about 41% of the travel.
-- **Tuning.** The note comes from $x$. With no sharp spectral peak to lock onto, the period is the mean time between successive maxima of $x$ above its average: $P \approx 1.545$ at the default, about 15.5 classical units. Time is rescaled by $k = P f_0$, so for A4 (440 Hz) the system runs about 680 time units per second of sound. dysts lists a period of 4.97, about three times longer; with no clear peak, different methods can disagree widely.
-- **Period across the range.** In the app's table $P$ varies between 1.389 and 1.700, not monotonically: about 22%, or three and a half semitones. With pitch lock on, the app follows $P(a)$ and the note stays put. With it off, sweeping the knob bends the pitch by up to about 1.8 semitones up or 1.7 down.
-- **Periodic windows.** About 73% of the 130 points in the app's table are chaotic ($\lambda P > 0.05$; a coarser 33-point sweep gave 70%). Narrow windows sit near $a \approx$ 1.792, 1.825, 1.858 and 1.89–1.90, and at the very top (1.941–1.945), plus about ten shorter ones in the table; more may hide between points. The widest, 1.886–1.902, contains $\beta = 0.19$, where a stable periodic orbit has been reported [4]. In a window the noise collapses into a steady periodic waveform with a fixed timbre.
+- **Tuning.** The note comes from $x$. With no sharp spectral peak to lock onto, the period is the mean time between successive maxima of $x$ above its average. The app's tuning table gives $P \approx 1.545$ at the default (about 15.5 classical units); the coarse sweep's reference value is 1.615, about 4.5% (0.8 semitone) longer, a sign of how loosely defined this system's period is. Time is rescaled by $k = P f_0$, so for A4 (440 Hz) the system runs about 680 time units per second of sound. dysts lists a period of 4.97, about three times longer; with no clear peak, different methods can disagree widely.
+- **Period across the range.** In the app's table $P$ varies between 1.389 and 1.700, not monotonically (the coarse sweep gave 1.405–1.688): about 22%, or three and a half semitones. With pitch lock on, the app follows $P(a)$ and the note stays put. With it off, the app keeps the default's period, so sweeping the knob bends the pitch by up to about 1.8 semitones up or 1.65 down.
+- **Periodic windows.** About 73% of the 130 points in the app's table are chaotic ($\lambda P > 0.05$; a coarser 33-point sweep gave 70%). Narrow windows sit near $a \approx$ 1.792, 1.825, 1.858 and 1.89–1.90, and at the very top (1.941–1.945), plus ten shorter, mostly single-point ones in the table; more may hide between points. The widest, 1.888–1.902, contains $\beta = 0.19$, where a stable periodic orbit has been reported ([4], citing [3]). In a window the noise collapses into a steady periodic waveform with a fixed timbre.
 - **Why the range ends where it does.**
   - Below $a \approx 1.72$ ($\beta \approx 0.172$), following the attractor down from the default leads onto a wide periodic branch, so the range starts a little above it. This may be the stable cycle that Sprott & Chlouverakis find after their crisis near $\beta \approx 0.18$ [2] (our interpretation).
-  - At the top, the coarse sweep stopped at $a \approx 1.967$, below a jump in the measured period near 1.975 that would make pitch lock glitch; the finer table pass then found non-stationary motion at $a \approx 1.947$ and trimmed the range to 1.945. In our simulations at 1.947–1.975, trajectories stay centred for a while, then drop onto one of a mirror-image pair of attractors confined to one side of the origin (mean about ±1.85 in every variable). That switch explains the drift and plausibly the jump.
+  - At the top, the coarse sweep stopped at $a \approx 1.967$, below a jump in the measured period near 1.975 that would make pitch lock glitch; the finer table pass then found non-stationary motion at $a \approx 1.947$ and trimmed the range to 1.945. In our simulations at $a \approx$ 1.947–1.952, and again near 1.975, trajectories stay centred briefly and then drop onto one of a mirror-image pair of attractors confined to one side of the origin (mean about ±1.84–1.88 in every variable). In between ($a \approx$ 1.957–1.97) the centred attractor persists. That switch explains the drift at 1.947 and plausibly the period jump near 1.975.
 
 ## Sound notes
 

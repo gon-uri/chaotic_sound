@@ -1,6 +1,6 @@
 # 0003. The Python lab generates a JSON catalog that engines consume
 
-- Status: Accepted (provisional, pending owner review)
+- Status: Accepted (owner, 2026-10-26)
 - Date: 2026-10-25
 
 ## Context

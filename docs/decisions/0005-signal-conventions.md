@@ -1,6 +1,7 @@
 # 0005. Signal ranges, normalization and modulation semantics
 
-- Status: Accepted (provisional, pending owner review). Partly from the owner's answers.
+- Status: Accepted (owner, 2026-10-26), except points 4 and 5, which are superseded by
+  ADR 0013 (single-cable inputs, perceptual amp).
 - Date: 2026-10-25
 
 ## Context

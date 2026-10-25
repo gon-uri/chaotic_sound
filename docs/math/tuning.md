@@ -1,9 +1,10 @@
 # Tuning chaos to a note
 
-- Status: Phase 1 results (2026-10-25).
+- Status: Phase 1 results, updated for engine v0.3 and catalog v2 (2026-10-26).
 - Numbers come from `catalog/systems.json` and the lab scripts. Rerun them with
   `lab/scripts/build_catalog.py` and `lab/scripts/render_demos.py`.
-- Decisions: ADR 0006 (time rescaling) and ADR 0010 (period estimation and range selection).
+- Decisions: ADR 0006 (time rescaling), ADR 0010 (period estimation), ADR 0012 (range
+  selection), ADR 0013 (controls).
 
 ## 1. Tuning is a rescaling of time
 
@@ -49,7 +50,8 @@ how pitched a variable sounds. At the default parameters the most pitched variab
 | Chua | y | 0.55 |
 | Lorenz | z | 0.42 |
 | Duffing | y | 0.28 |
-| Thomas | all variables | about 0.1–0.25 |
+| Rikitake | z | 0.54 |
+| Thomas (dropped from v1) | all variables | about 0.1–0.25 |
 
 **Estimators differ in stability.** For each system at its default parameter we ran 12
 independent stretches of 2000 periods each and measured how much each estimator spread
@@ -63,6 +65,9 @@ between stretches (standard deviation in cents; 100 cents = 1 semitone):
 | Thomas (x) | 24.7 | 17.0 | **6.3** |
 | Duffing (y) | 0.1 | 0.4 | 15.0 (drive period used instead) |
 
+(Measured on catalog v1 at the dysts parameters. Rikitake was added later; see §6 for its
+accuracy.)
+
 Chaotic peaks are broad and have sub-structure. The highest bin jumps between sub-peaks,
 while the power-weighted centroid of the peak averages over them.
 
@@ -75,8 +80,10 @@ while the power-weighted centroid of the peak averages over them.
 2. **The method:**
    - Forced systems use the exact drive period 2π/ω.
    - A pitched tuning observable (prominence ≥ 0.25) uses the **peak centroid**.
-   - A broadband one uses the **mean return time between maxima**. Only Thomas falls in this
-     case.
+   - A broadband one uses the **mean return time between maxima**. Only Thomas fell in
+     this case, and it is no longer in v1.
+   - For forced systems, the drive period is used only if the tuning variable's measured
+     period is within 2% of it (some forced systems respond at a multiple of the drive).
 3. UPO-based tuning is kept as a research item (roadmap). The return time is its cheap
    relative: for phase-coherent attractors it equals the mean period of the main loop.
 
@@ -87,10 +94,15 @@ the default value. Engines interpolate it linearly. With pitch lock on (the defa
 k(t) = P(u(t))·f₀, so the note stays fixed while the timbre changes. With it off, k uses P at
 the default value, and the pitch drifts as the parameter moves.
 
-| Lorenz ρ: 24.8 → 71.3 in 20 s at A3 | Pitch error, averaged over the sweep |
+| Lorenz ρ: 24.8 → 69.4 in 20 s at A3 | Pitch |
 |---|---|
-| pitch lock ON (`03_lorenz_sweep_locked.wav`) | −0.7 cents |
-| pitch lock OFF (`03_lorenz_sweep_free.wav`) | +307 cents (rising to almost an octave at the end) |
+| pitch lock ON (`03_lorenz_sweep_locked.wav`) | −1.1 cents averaged over the sweep |
+| pitch lock OFF (`03_lorenz_sweep_free.wav`) | from 7.2 semitones below the note (ρ = 24.8) to 3.6 above it (ρ = 69.4); the default ρ = 48 plays the note |
+
+The **pitch input** (ADR 0013) moves f itself: k(t) = P(u)·f(t). The time scale simply
+follows, and `09_pitch_glide.wav` glides Rikitake over four octaves.
+
+![Rikitake pitch glide A1 → A5 → A1](../figures/demo_pitch_glide.png)
 
 ![Lorenz sweep, pitch lock on](../figures/demo_lorenz_sweep_locked.png)
 ![Lorenz sweep, pitch lock off](../figures/demo_lorenz_sweep_free.png)
@@ -99,87 +111,108 @@ P(u) has real fine structure for some systems. Chua's period wiggles by ±20 cen
 of about 0.1 in α, near its periodic windows. A 33-point table missed this and caused 13-cent
 errors. The 129-point table follows it.
 
-## 4. Choosing the chaotic range of the knob
+## 4. Choosing the knob's range (ADR 0012)
 
-The owner asked for chaos only, with the route to chaos left for later (roadmap). For each
+The owner's rule: the range must contain chaos, and stability and musicality come first.
+Periodic windows are allowed, and the default may move away from the dysts value. For each
 system the lab sweeps the modulated parameter over a wide **candidate range**: 241 values,
 1000 periods each. It uses **continuation**: each value starts from the previous one's end
-state, walking outward from the default. A slowly modulated box follows the same attractor
-branch. The range then grows outward from the default while:
+state, walking outward from the dysts value, so it follows the branch a slowly modulated box
+follows. Then:
 
-- the motion stays **bounded**, with a margin of 3% of the candidate width kept from any
-  value where trajectories escape;
-- the tuning observable stays **stationary** (no drift between the two halves of a record);
-- it is **chaotic**: λ_max·P > 0.05 nats per period, using the largest Lyapunov exponent from
-  the two-trajectory (Benettin) method;
-- P does not **jump** by more than 15% between neighbors, since pitch lock would glitch there.
+1. **Stability.**
+   - No unbounded or drifting values, plus a margin of 3% of the candidate width around them.
+   - A **hysteresis test**: the range is swept up and down. Where the two directions land on
+     different attractors (σ differs by > 10%, or P by > 3%), that stretch is excluded.
+2. **Musicality.**
+   - The tuning variable's prominence is ≥ 0.15 everywhere.
+   - P(u) never jumps by more than 15% between neighbors.
+3. **Chaos present.** Both ends are chaotic and ≥ 60% of the points are chaotic. Periodic
+   windows of any width may lie inside; the periodic tails at either end are trimmed off.
+4. **Default.** The chaotic point nearest the middle of the range (with chaotic neighbors).
+   The dysts value is kept as `p_reference`.
+5. **A final 129-point pass**, by continuation from the default, applies the same rules
+   again and shrinks the range if needed.
 
-**Narrow periodic windows** (each up to 3% of the candidate width) are accepted inside the
-range. Chaotic bands are full of them: a strictly windowless range would be [5.6, 5.8] for
-Rössler and [0.342, 0.354] for Duffing. Inside a window the sound simply becomes periodic
-for a moment. A final 129-point pass trims the range again if it reveals an unsafe point or
-a jump the coarse sweep missed.
-
-| System | Param | Range (knob 0 → 1) | Knob at default | Tuning on | Method | P across range | Chaotic | Windows | RK4 sub-steps @A4 |
-|---|---|---|---|---|---|---|---|---|---|
-| Lorenz | ρ | [24.8, 71.26] | 0.069 | z | peak centroid | 0.440–0.832 | 99% | 0 | 5 |
-| Rössler | c | [5.512, 8.818] | 0.057 | x | peak centroid | 5.738–5.941 | 85% | 7 | 3 |
-| Chua | α | [13.7, 18.05] | 0.437 | y | peak centroid | 1.409–1.686 | 91% | 6 | 3 |
-| Thomas | a | [1.783, 1.945] | 0.412 | x | return time | 1.389–1.700 | 73% | 4 | 3 |
-| Duffing | γ | [0.3421, 0.5667] | 0.035 | y | drive 2π/ω | 4.488 (exact) | 89% | 3 | 3 |
+| System | Param | Range (knob 0 → 1) | Default (dysts) | Knob at default | Tuning on | Method | P across range | Chaotic | Windows | Min prominence | RK4 sub-steps @A4 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Lorenz | ρ | [24.8, 69.45] | 48.03 (28) | 0.52 | z | peak centroid | 0.4465–0.8312 | 100% | 0 | 0.30 | 5 |
+| Rössler | c | [4.237, 8.815] | 6.562 (5.7) | 0.51 | x | peak centroid | 5.743–5.94 | 78% | 11 | 0.48 | 3 |
+| Chua | α | [13.7, 18.05] | 15.8 (15.6) | 0.48 | y | peak centroid | 1.409–1.684 | 91% | 7 | 0.24 | 3 |
+| Rikitake | μ | [0.5133, 1.8] | 1.153 (1) | 0.50 | z | peak centroid | 3.785–7.016 | 98% | 2 | 0.46 | 5 |
+| Duffing | γ | [0.3858, 0.5083] | 0.4471 (0.35) | 0.50 | y | drive 2π/ω | 4.488 (exact) | 98% | 2 | 0.26 | 3 |
 
 Why each range ends where it does:
 
-- **Lorenz.** The low end is set by hand at 24.8, just above ρ ≈ 24.74. Below that value the
-  fixed points are stable alongside the chaotic attractor, so a modulated box could fall
-  silent. At the high end a periodic window near 71.5 makes the period jump by 32%.
-- **Rössler.** A periodic window at c ≈ 5.21 ends the low side. At the high side the range was
-  trimmed at c ≈ 8.82, where the attractor changes to the funnel type and the period jumps.
-- **Chua.** A periodic window at α ≈ 13.3 ends the low side. Trajectories escape to infinity
-  from α ≈ 18.45, so the range stops at 18.05. The single-scroll to double-scroll transition
-  near α ≈ 14.4–14.6 lies inside the range, and there x's standard deviation doubles.
-- **Thomas.** A wide periodic region lies below a ≈ 1.72, and the final pass found a drifting
-  point at a ≈ 1.947.
-- **Duffing.** The system is periodic below γ ≈ 0.32 and from γ ≈ 0.59. The dysts default of
-  0.35 sits on a small chaotic island, linked to the main band (0.375–0.565) across the
-  window 0.357–0.374.
+- **Lorenz.** The low end is set by hand at 24.8, just above ρ ≈ 24.74, below which the fixed
+  points are stable alongside the chaotic attractor and a box could fall silent. The high end
+  is the ρ ≈ 69.8 periodic window, where the spectral peak jumps (31%).
+- **Rössler.** It starts at the onset of chaos (c ≈ 4.24, after the period-doubling cascade)
+  and ends at c ≈ 8.82, where the attractor turns funnel-like and the period jumps.
+- **Chua.** Below α ≈ 13.7 it is periodic. Trajectories escape to infinity from α ≈ 18.45, so
+  the range stops at 18.05 (the margin).
+- **Rikitake.** Below μ ≈ 0.51 it is periodic. The top is the candidate edge, set by hand at
+  1.8, because the screening found quiet spells on the attractor from μ ≈ 2.1.
+- **Duffing.** The hysteresis test found coexisting attractors near γ ≈ 0.381 and 0.514. The
+  range [0.386, 0.508] is direction-independent and 98% chaotic.
 
-Diagnostic figures (Lyapunov exponent, tuning curve, levels and attractor) are in
+Diagnostic figures (Lyapunov exponent, tuning curve, levels, crest factor, attractor) are in
 `docs/figures/catalog_<system>.png`.
 
-## 5. Loudness
+![Rikitake catalog diagnostics](../figures/catalog_rikitake.png)
 
-Audio is y = a · 0.25 · (x_obs − μ(u))/σ(u). The table values μ(u) and σ(u) are the mean and
-standard deviation of the heard variable, so every box has an RMS of 0.25 (about −12 dBFS) at
-amp = 1, whatever the system, variable or parameter. A 5 Hz DC blocker removes what is left
-of the offset. Measured on the demos: RMS 0.249–0.252, peaks 0.53–0.72 per box, and no
-safety resets in any demo.
+## 5. Loudness and level
+
+Audio is y = g · s(u) · (x_obs − μ(u)), with s(u) = min(0.25/σ(u), 0.8/π(u)):
+
+- μ(u) and σ(u) are the mean and standard deviation of the heard variable;
+- π(u) is its robust peak, the 99.9th percentile of |x − μ|;
+- g is the amp gain, g = a^1.661 with the default perceptual curve (each halving of the knob
+  is −10 dB, which sounds half as loud).
+
+So every box has an RMS of 0.25 (about −12 dBFS) at amp = 1, unless its signal is spiky. In
+that case the peak limit keeps it under the clipper. A 5 Hz DC blocker removes what is left of
+the offset.
+
+Measured on the demos (engine v0.3): RMS 0.248–0.253 per box, peaks 0.57–0.88, and no safety
+resets in any demo, including the square modulator on Chua that used to reset.
 
 ## 6. Accuracy achieved
 
-Tuning error of a single box, measured on the rendered audio with the catalog's own method
-(tests: `lab/tests/test_dynamical.py`):
+Tuning error of a single box, measured on the rendered audio with the shared estimator
+`analysis.spectrum.measure_pitch`:
+- the interpolated peak for drive-tuned systems;
+- the peak centroid for the others.
 
-| System | Error at A3 (6 s demo) | Test tolerance (A2, A3, A4; ≥ 2000 cycles) | Why that tolerance |
-|---|---|---|---|
-| Rössler | +0.1 cents | 5 cents | estimator spread < 1 cent |
-| Duffing | −0.9 cents | 5 cents | drive period is exact |
-| Lorenz | −6.2 cents | 12 cents | spread ≈ 3 cents per 2000 cycles |
-| Chua | −5.1 cents | 12 cents | spread ≈ 3 cents |
-| Thomas | −2.2 cents | 35 cents | depends on the run: −9 … +34 cents across seeds |
+Six seeds × A2, A3, A4 at 44.1 and 48 kHz, ≥ 2000 cycles each:
 
-About 5–10 cents is close to the smallest pitch difference listeners can notice. For
-chaotic signals the pitch is inherently a little blurred: it is the centre of a broad peak.
+| System | Mean error | Spread across seeds (sd) | Worst single render | Test limits (mean / single) |
+|---|---|---|---|---|
+| Rössler | −0.2 … −0.1 c | 0.2–0.4 c | 0.8 c | 1 / 2 c |
+| Duffing | ≈ 0 c (peak: −0.05 c) | < 0.1 c | 0.1 c | 1 / 2 c |
+| Lorenz | +0.7 … +1.4 c | 0.6–1.8 c | 3.2 c | 2.5 / 5 c |
+| Chua | −3.4 … −1.0 c | 2.3–3.4 c | 7.1 c | 5 / 11 c |
+| Rikitake | −3.4 … −1.8 c | 1.3–3.1 c | 8.1 c | 5 / 12 c |
+
+About 5–10 cents is close to the smallest pitch difference listeners can notice. For a
+chaotic signal the pitch is inherently a little blurred: it is the centre of a broad peak.
+
+One caution about measuring: with the centroid estimator, Duffing appears 2–3 cents flat,
+because of broadband power next to its sharp drive line. The interpolated peak shows the
+drive is exact. Hence the method-specific estimator.
 
 ## 7. Limits and open questions
 
-- **Thomas is a weak voice** at dysts' parameters. Its chaotic band is narrow and full of
-  windows, its spectrum has no sharp peak, and its pitch depends on the run. A screening of
-  replacement candidates is in `docs/studies/fifth-system-screening.md`; the decision is in
-  `docs/REVIEW.md`.
-- **Multistability and hysteresis.** The tables follow one attractor branch, walking outward
-  from the default. A box modulated back and forth could land on another branch, where the
-  pitch or level tables do not apply.
+- **Thomas was replaced by Rikitake** (ADR 0012). At dysts' parameters Thomas's chaotic band
+  is narrow and full of windows, its spectrum has no sharp peak, and its pitch depends on the
+  run (`docs/studies/fifth-system-screening.md`).
+- **Multistability.** The hysteresis test catches branches that depend on the sweep
+  direction, at the resolution of a 65-point grid. Narrower bistable stretches, and attractors
+  the continuation never visits, could still exist.
+- **Quiet traps.** Near weakly unstable equilibria (Rikitake's linear centres, Lorenz just
+  above ρ ≈ 24.74), a fast or abrupt modulation can leave the state close to an equilibrium,
+  where the box sings softly for a while. The parameter slew (ADR 0013) reduces this. An
+  engine guard is on the roadmap.
 - **Aliasing at high notes** is quantified in `docs/studies/aliasing.md`.
 - **Integration resolution** (is N = 256 needed?) is covered in `docs/studies/resolution.md`.
 - **Perception.** All the pitch numbers above are signal measures. Listening tests are still
@@ -193,5 +226,5 @@ chaotic signals the pitch is inherently a little blurred: it is the centre of a 
 cd lab
 caffeinate -is uv run python scripts/build_catalog.py   # ≈ 2 min: catalog + figures
 uv run python scripts/render_demos.py                   # WAVs + spectrograms + report
-uv run pytest -q                                        # 132 tests, incl. tuning accuracy
+uv run pytest -q                                        # 215 tests, incl. tuning accuracy
 ```

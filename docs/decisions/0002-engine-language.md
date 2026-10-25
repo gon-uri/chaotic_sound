@@ -1,7 +1,7 @@
 # 0002. Real-time engine in TypeScript; the Python lab is the reference implementation
 
-- Status: **Proposed**. The owner asked for a fuller explanation of the trade-offs before
-  deciding. Nothing built so far depends on this choice.
+- Status: **Accepted** (owner, 2026-10-26): "TypeScript first", with a clear modular
+  (hexagonal) architecture so that moving the engine to C++ later is easy. See ADR 0011.
 - Date: 2026-10-25
 
 ## Context
@@ -30,7 +30,7 @@ state of the art, but not overly complicated".
 | Learning curve for the owner | Gentle: reads much like Python with type hints | Steep (ownership, lifetimes, borrow checker) | Moderate to steep, and memory-unsafe |
 | Reuse outside the web | Node and any JS/TS app; not from Python or in audio plugins | Same core could become a Python package (PyO3) and native audio plugins (VST3/CLAP via nih-plug) | Same, plus JUCE for plugins |
 
-## Decision (proposed)
+## Decision
 
 **Option A: TypeScript**, with a deliberately narrow, numeric "kernel" interface. Each block
 processes a buffer of samples using preallocated `Float64Array`s, with no allocation in the
@@ -55,8 +55,11 @@ Why:
     (equation → TS + Python + LaTeX; see the roadmap).
   - Cross-engine tests catch drift.
 - If profiling ever shows a bottleneck, or the owner wants native plugins or Python bindings
-  for the real-time engine, the kernel can be ported to Rust/WASM later without touching the
-  graph code or the UI.
+  for the real-time engine, the core can be ported to C++ (the owner's preferred future
+  language) or Rust and compiled to WASM behind the same `EnginePort` (ADR 0011), without
+  touching the adapters or the UI. The cost study (`docs/studies/cost.md`) found that one box
+  costs 0.2–0.4% of a core at A3 in JavaScript, so this is not expected to be needed for
+  speed.
 
 ## Alternatives considered
 

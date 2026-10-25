@@ -36,26 +36,26 @@ So $\ddot x + 0.1\,\dot x - x + x^3 = \gamma\cos(1.4\,t)$: a ball in the potenti
 
 ## The parameter you control: γ
 
-γ is how hard the system is shaken. Holmes found simple motion for weak and for strong forcing, and complicated motion over a wide range in between [9]. Melnikov's method [11, 12] gives the forcing above which the paths into and out of the hilltop cross and tangle:
+γ is how hard the system is shaken. Holmes found simple motion for weak and for strong forcing, and complicated motion over a wide range in between [9]. To first order in the damping and forcing, Melnikov's method [11, 12] estimates the forcing above which the paths into and out of the hilltop cross and tangle:
 
 $$
 \gamma_c = \frac{4\,\delta\,\cosh(\pi\omega/2)}{3\sqrt{2}\,\pi\,\omega} \approx 0.098.
 $$
 
-Beyond $\gamma_c$ a "horseshoe" of chaotic orbits brings chaotic transients and can make the boundary between the two wells' basins fractal [13, 14]. It does not guarantee a lasting chaotic attractor [14]; here one appears only at about $3.5\,\gamma_c$. The landmarks below come from our own quick simulations, not from the literature, and agree with the project's sweep:
+Beyond $\gamma_c$ a "horseshoe" of chaotic orbits brings chaotic transients and can make the boundary between the two wells' basins fractal [13, 14]. It does not guarantee a lasting chaotic attractor [14]; here one appears only at about $3.5\,\gamma_c$. The landmarks below come from our own simulations, not from the literature, and agree with the project's sweep:
 
 | γ | What happens |
 |---|---|
-| < 0.31 | Periodic rocking in one well (left or right, as mirror images). |
-| ≈ 0.31–0.3405 | Period doubling: the motion repeats every 2, 4 (≈ 0.337), 8 (≈ 0.3397), then 16 (≈ 0.3403) drive cycles. |
-| ≈ 0.3405 | Chaos, still confined to one well. |
+| < 0.31 | Periodic rocking in one well (left or right, as mirror images). From γ ≈ 0.28 a large swing over both wells also exists (see below). |
+| ≈ 0.31–0.3404 | Period doubling: the motion repeats every 2, 4 (≈ 0.336), 8 (≈ 0.3396), then 16 (≈ 0.3402) drive cycles. |
+| ≈ 0.3404 | Chaos, still confined to one well. |
 | ≈ 0.341 | The two one-well attractors merge into one symmetric attractor that hops between wells (probably an attractor-merging crisis). |
 | ≈ 0.341–0.355 | A small chaotic island that holds the default. |
 | ≈ 0.355–0.375 | Period-5 window: two hops every five drive cycles. |
-| ≈ 0.375–0.565 | Main chaotic band, with hops rising from about 0.45 to 0.8 per cycle. Hair-thin windows lie near 0.500 (period 3), 0.511 (period 5), 0.514 (period 7) and 0.517 (period 13). At 0.500 and 0.511 the orbit is reached only after a chaotic transient that can last thousands of cycles. |
+| ≈ 0.375–0.565 | Main chaotic band, with hops rising from about 0.45 to 0.8 per cycle. Hair-thin windows lie near 0.500 (period 3), 0.5055 (period 7), 0.511 (period 5), 0.514 (period 7) and 0.517 (period 13). At 0.500, 0.5055 and 0.511 the orbit is reached only after a chaotic transient that can last thousands of cycles. |
 | ≳ 0.57 | Period-3 subharmonic, while the large one-cycle swing (below) captures more and more starting states. |
 
-The chaotic attractor is not alone. From γ ≈ 0.325 upward, across the whole knob range, it coexists with a large period-1 swing over both wells, which crosses the hill twice per drive cycle. In our checks a few percent of random starting states end on this swing near the default, rising to about a fifth or a quarter at the top of the range.
+The chaotic attractor is not alone. A large period-1 swing over both wells, crossing the hill twice per drive cycle, is stable from about γ ≈ 0.28 upward, so it coexists with the chaos across the whole knob range. Its share of starting states grows steadily with γ. For states drawn uniformly from $|x|, |y| \le 2$ at the start of a drive cycle, about a tenth end on the swing at the default and about a third at the top of the range.
 
 ## Properties
 
@@ -71,7 +71,7 @@ The chaotic attractor is not alone. From γ ≈ 0.325 upward, across the whole k
   - The drive is a perfect clock, so the spectrum has a sharp line at the drive frequency over a broad chaotic floor.
   - $y$ keeps a quarter to a third of its power within ±3% of that line (about 0.24 at the default). $x$ keeps about 0.1, because well hopping feeds low frequencies.
   - Brunsden and Holmes predicted the shape of such spectra by treating the signal as a random train of near-homoclinic pulses, and compared the result with Duffing simulations [15].
-- **Boundedness:** $|x| \lesssim 2$ across the range in our runs. $z$ grows forever, so the app wraps it modulo $2\pi$.
+- **Boundedness:** on the chaotic attractor $|x|$ stays below about 1.9 across the range; the coexisting large swing reaches about 2.15. $z$ grows forever, so the app wraps it modulo $2\pi$.
 
 ## History
 
@@ -79,7 +79,7 @@ The chaotic attractor is not alone. From γ ≈ 0.325 upward, across the whole k
 
 **Kyoto, 1961.** On 27 November 1961, Yoshisuke Ueda, a graduate student in Chihiro Hayashi's laboratory at Kyoto University, was simulating a forced self-oscillator with a Duffing-type cubic spring. He was using a vacuum-tube analog computer built by his senior colleague M. Abe. The equation was $\ddot x - \mu(1-\gamma x^2)\dot x + x^3 = B\cos\nu t$, and its strobed points scattered over what he called a "broken egg" [16]. By 1963 he had seen the same behaviour in the Duffing equation itself [8].
 
-The results fitted no accepted kind of oscillation and became a point of disagreement with Hayashi. Ueda's 1965 thesis sidestepped them, and his first chaotic examples appeared in Japanese in 1970 and 1973 [8]. In English, his 1979 paper [6] studied $\ddot x + k\dot x + x^3 = B\cos t$. With $k = 0.05$ and $B = 7.5$ it gives Ueda's attractor, nicknamed the "Japanese attractor". His 1980 paper [7] described the "explosion" of strange attractors, now called an interior crisis. H. B. Stewart notes that Yorke and colleagues, who coined that name, overlooked Ueda's priority [8].
+The results fitted no accepted kind of oscillation and became a point of disagreement with Hayashi. Ueda's 1965 thesis sidestepped them, and his first chaotic examples appeared in Japanese in 1970 and 1973 [8]. In English, his 1979 paper [6] studied $\ddot x + k\dot x + x^3 = B\cos t$. With $k = 0.05$ and $B = 7.5$ this equation gives Ueda's attractor, nicknamed the "Japanese attractor" [8]. His 1980 paper [7] described the "explosion" of strange attractors, now called an interior crisis. H. B. Stewart notes that Yorke and colleagues, who coined that name, overlooked Ueda's priority [8].
 
 **Holmes and the buckled beam, 1979.** Philip Holmes used Melnikov's 1963 method [11] to prove that the double-well equation has complicated motions, and mapped its attractor with analog and digital simulations [9]. That year Francis Moon and Holmes built a physical version [10]: a steel cantilever beam, buckled towards one of two magnets and shaken sinusoidally, which hopped chaotically between them. It became a teaching classic, rebuilt in 2013 as an undergraduate thesis project [14].
 
@@ -91,9 +91,9 @@ All numbers are in the system's own time units.
 
 - **Range:** the knob covers γ = 0.342–0.567. The default, 0.35, sits at 0.035 on the knob.
 - **Tuning:** the tuning period is the drive period, $P = 2\pi/\omega \approx 4.488$, which is exact and identical at every γ (0% change across the range). With time rescaled by $k = P f_0$, the drive runs at exactly the note $f_0$; the measured tuning error is under one cent.
-- **Heard variable:** $y$, which is locked to the drive and peaks at $f_0$. $x$ hops between wells, and subharmonics dominate its spectrum.
-- **Chaos:** 85% of the 33 points of the project's range sweep are chaotic (the denser 130-point table in the current catalog gives 89%). $\lambda P$ mostly runs from about 0.5 to 1 per drive cycle, higher in the upper part of the range.
-- **Main periodic window:** γ ≈ 0.355–0.375, about 0.055–0.145 on the knob, just above the default. (The coarse sweep puts its edges at 0.357 and 0.374.) The sound becomes the period-5 orbit, which repeats every five drive cycles. Its true fundamental is therefore $f_0/5$, two octaves and a major third below the note.
+- **Heard variable:** $y$, which on the chaotic attractor is locked to the drive and peaks at $f_0$ (inside the period-5 window its strongest line moves to $3f_0/5$; see below). $x$ hops between wells, and subharmonics dominate its spectrum.
+- **Chaos:** most of the range is chaotic. The share of sampled points with $\lambda P > 0.05$ is 85% on a 33-point sweep and 89% on the 130-point table in the current catalog. $\lambda P$ mostly runs from about 0.5 to 1 per drive cycle, higher in the upper part of the range.
+- **Main periodic window:** γ ≈ 0.355–0.375, about 0.055–0.145 on the knob, just above the default. (The coarse sweep puts its edges at 0.357 and 0.374.) The sound becomes the period-5 orbit, which repeats every five drive cycles. Its true fundamental is therefore $f_0/5$, two octaves and a major third below the note. In $y$ the strongest line is $3f_0/5$, a major sixth below the note, with the $f_0/5$ fundamental also strong and the note itself weaker.
 - **Tiny windows:** the sweep flags single grid points at γ ≈ 0.511 and 0.517 (knob ≈ 0.75 and 0.78), part of a cluster of hair-thin windows around 0.50–0.52 (see the table). Some take thousands of drive cycles to settle, which is several seconds at a mid-range note, so the box may sound chaotic there for a while.
 - **A hidden steady tone:** the large one-cycle swing coexists with the chaos across the whole range (see above). A box that lands on it plays a steady, periodic tone at $f_0$ and stays there. Our simulations from the app's initial state did not land on it, but this is untested in the app, for example while the knob turns.
 - **Range ends:** below γ ≈ 0.34 the motion is periodic inside one well. From γ ≈ 0.57 the period-3 subharmonic takes over ($f_0/3$, an octave and a fifth down), and the large one-cycle swing captures more starting states.
@@ -106,7 +106,7 @@ To be filled in after listening tests (Phase 1).
 Hypotheses (to be tested):
 
 - $y$ should sound clearly pitched, with a breathy, crackling halo: a sharp line at the note over a broad chaotic floor. It is likely less pure than Rössler but steadier in pitch than the autonomous boxes.
-- Sweeping γ should change roughness, not pitch. Crossing the 0.355–0.375 window should snap to a clean, buzzy tone whose pitch may drop towards $f_0/5$. If the state falls onto the large one-cycle swing, the box should instead hold a steady tone at the note with no chaotic halo.
+- Sweeping γ should change roughness, not pitch. Crossing the 0.355–0.375 window should snap to a clean, buzzy tone whose pitch may drop to $f_0/5$ or to its strong third harmonic $3f_0/5$. If the state falls onto the large one-cycle swing, the box should instead hold a steady tone at the note with no chaotic halo.
 - $x$ will likely sound like an irregular, lurching sub-bass with only a faint pitch.
 
 ## References
@@ -115,7 +115,7 @@ Hypotheses (to be tested):
 2. Hamel (1921). Review of Duffing (1918). *ZAMM – Zeitschrift für Angewandte Mathematik und Mechanik*, 1(1), 72–73. https://doi.org/10.1002/zamm.19210010109 (this is the DOI that dysts lists for the system)
 3. Kovacic, I., & Brennan, M. J. (2011). Background: On Georg Duffing and the Duffing equation. In I. Kovacic & M. J. Brennan (Eds.), *The Duffing Equation: Nonlinear Oscillators and their Behaviour* (pp. 1–23). Wiley. https://doi.org/10.1002/9780470977859.ch1
 4. Rimrott, F. P. J. (1994). Georg Duffing (1861–1944). *Technische Mechanik*, 14(1), 77–82. https://journals.ub.ovgu.de/index.php/techmech/article/view/1285
-5. Nolte, D. D. (2019, updated 2023). Georg Duffing and his equation. *Galileo Unbound* (blog). https://galileo-unbound.blog/2019/03/20/georg-duffing-and-his-equation/
+5. Nolte, D. D. (2019, updated 2023). Georg Duffing’s Equation. *Galileo Unbound* (blog). https://galileo-unbound.blog/2019/03/20/georg-duffing-and-his-equation/
 6. Ueda, Y. (1979). Randomly transitional phenomena in the system governed by Duffing's equation. *Journal of Statistical Physics*, 20(2), 181–196. https://doi.org/10.1007/BF01011512
 7. Ueda, Y. (1980). Explosion of strange attractors exhibited by Duffing's equation. *Annals of the New York Academy of Sciences*, 357, 422–434. https://doi.org/10.1111/j.1749-6632.1980.tb29708.x
 8. Ueda, Y. (1992). *The Road to Chaos*. Santa Cruz: Aerial Press. Includes a preface and chronology by R. H. Abraham and technical comments by H. B. Stewart. Front matter: https://repository.kulib.kyoto-u.ac.jp/dspace/handle/2433/71101

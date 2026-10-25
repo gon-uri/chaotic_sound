@@ -4,7 +4,7 @@
 
 Repo, docs, decision records, Python lab environment, agent configuration, private GitHub repo.
 
-## Phase 1: Python reference engine and analysis (implemented 2026-10-25; studies and review in progress)
+## Phase 1: Python reference engine and analysis ✅ (2026-10-26, engine v0.3)
 
 Goal: prove that "tuned chaos" works and sounds interesting before building any UI.
 
@@ -16,16 +16,19 @@ Goal: prove that "tuned chaos" works and sounds interesting before building any 
 - [x] `catalog/systems.json` generated.
 - [x] Blocks (Modulator, Dynamical, Sum, Output), the patch graph and JSON, offline render, WAV.
 - [x] Demo patches rendered to WAV, with spectrograms and a written report of what works.
-- [ ] Studies: pitch-lock accuracy under modulation, aliasing vs. note (is oversampling
-      needed?), steps-per-period convergence, cost per sample (`docs/studies/`).
-- [ ] Decide on Thomas (replace or keep): see `docs/studies/fifth-system-screening.md`.
+- [x] Studies: aliasing, steps-per-period convergence, cost, modulation rate, fifth-system
+      screening (`docs/studies/`).
+- [x] Owner's review, round 1: single-cable inputs + Control Sum, perceptual amp, pitch input,
+      playable ranges, Thomas → Rikitake (ADRs 0011–0013).
+- [x] Code review: 55 findings fixed, spec v0.3 pins every formula.
 - [ ] Listening tests by the owner (does the measured pitch match the perceived one?).
 
-## Phase 2: real-time engine (after ADR 0002 is accepted)
+## Phase 2: TypeScript engine (in progress)
 
-- [ ] `packages/engine` (TypeScript) implementing spec v1 and reading the catalog.
-- [ ] Cross-engine tests: the same patch JSON through Python and TS, with matching statistics.
-- [ ] AudioWorklet wrapper; Web Worker offline render plus WAV encoder.
+- [ ] `packages/engine`: hexagonal core (ADR 0011) implementing spec v0.3, reading the catalog.
+- [ ] Golden vectors from the Python lab (`examples/golden/`); cross-engine tests.
+- [ ] Adapters: Node CLI renderer + WAV; AudioWorklet processor; offline (Web Worker) renderer.
+- [ ] A minimal HTML test page to hear a patch live in the browser.
 
 ## Phase 3: web app MVP
 
@@ -46,7 +49,15 @@ Goal: prove that "tuned chaos" works and sounds interesting before building any 
   (return time to a Poincaré section). That stays continuous through period doubling, so the
   note holds and sub-octaves appear as extra lower partials.
 - **Chaotic modulators**: slow chaotic systems used as LFOs.
-- **Pitch input** on dynamical boxes (glides, vibrato, sequencing).
+- **Relative pitch input mode** (± N semitones around the note, for vibrato), with the
+  modulator min/max properties.
+- **Quiet-trap guard**: detect a voice stuck near a weakly unstable equilibrium and nudge it
+  back onto the attractor.
+- **Oversampling** for notes above about F#6 (`docs/studies/aliasing.md`).
+- **Per-system resolution** (128 steps per period for most systems saves 33–50% CPU;
+  `docs/studies/resolution.md`).
+- **Moore–Spiegel** (1966, astrophysics) as a sixth system, after fixing the f_min issue in
+  the analysis (screening study).
 - **Modulator properties**: duty cycle, min/max, phase, retrigger, tempo sync.
 - **More boxes**: noise generators (white, pink, brown, …), filters, classic effects (delay,
   reverb, distortion), multiply / ring modulation.

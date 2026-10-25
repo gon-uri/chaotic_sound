@@ -1,6 +1,7 @@
 # 0010. Measuring the characteristic period and choosing the chaotic range
 
-- Status: Accepted (provisional, pending owner review). Refines ADR 0006.
+- Status: Accepted (owner, 2026-10-26). Points 1, 2 and 4 stand. Point 3 (range selection) and
+  point 5 are superseded by ADR 0012. Refines ADR 0006.
 - Date: 2026-10-25
 - Evidence: `docs/math/tuning.md` §2–4 and `docs/figures/catalog_*.png`.
 

@@ -1,6 +1,6 @@
 # 0007. Own system definitions, with dysts as data source and test oracle
 
-- Status: Accepted (provisional, pending owner review)
+- Status: Accepted (owner, 2026-10-26)
 - Date: 2026-10-25
 
 ## Context
