@@ -1,0 +1,46 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "env",
+      "type": "modulator",
+      "params": {
+        "shape": "ramp_down",
+        "period_s": 6.0,
+        "mode": "once"
+      }
+    },
+    {
+      "id": "lorenz",
+      "type": "dynamical",
+      "params": {
+        "system": "lorenz",
+        "note": "D3",
+        "cents": 0.0,
+        "pitch_min": "A1",
+        "pitch_max": "A5",
+        "pitch_lock": true,
+        "amp_curve": "perceptual",
+        "amp": 1.0
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "params": {
+        "volume": 1.0
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": "env.out",
+      "to": "lorenz.amp"
+    },
+    {
+      "from": "lorenz.out",
+      "to": "out.in"
+    }
+  ]
+}

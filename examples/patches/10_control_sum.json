@@ -1,0 +1,70 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "slow",
+      "type": "modulator",
+      "params": {
+        "shape": "sine",
+        "period_s": 8.0,
+        "mode": "loop"
+      }
+    },
+    {
+      "id": "fast",
+      "type": "modulator",
+      "params": {
+        "shape": "triangle",
+        "period_s": 0.25,
+        "mode": "loop"
+      }
+    },
+    {
+      "id": "both",
+      "type": "control_sum",
+      "params": {
+        "gain": 0.6
+      }
+    },
+    {
+      "id": "chua",
+      "type": "dynamical",
+      "params": {
+        "system": "chua",
+        "note": "E3",
+        "cents": 0.0,
+        "pitch_min": "A1",
+        "pitch_max": "A5",
+        "pitch_lock": true,
+        "amp_curve": "perceptual",
+        "amp": 1.0
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "params": {
+        "volume": 1.0
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": "slow.out",
+      "to": "both.in"
+    },
+    {
+      "from": "fast.out",
+      "to": "both.in"
+    },
+    {
+      "from": "both.out",
+      "to": "chua.param"
+    },
+    {
+      "from": "chua.out",
+      "to": "out.in"
+    }
+  ]
+}

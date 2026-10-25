@@ -1,15 +1,21 @@
-"""Build catalog entries from parameter sweeps (ADR 0003, ADR 0010).
+"""Build catalog entries from parameter sweeps (ADR 0003, ADR 0010, ADR 0012).
 
 Pipeline for one system:
 
-1. :func:`~chaotic_sound.analysis.sweep.reference_scale` measures P_ref at the default.
-2. At the default parameter, the most pitched audible variable (largest spectral prominence)
+1. :func:`~chaotic_sound.analysis.sweep.reference_scale` measures P_ref at the dysts
+   (reference) parameter value.
+2. At the reference value, the most pitched audible variable (largest spectral prominence)
    becomes the *tuning observable*, and :func:`choose_period_method` decides how the
    system's characteristic period is measured on it.
-3. A sweep over the system's ``candidate_range`` feeds
-   :func:`~chaotic_sound.analysis.sweep.select_chaotic_range`.
-4. A more accurate pass on a uniform u grid over the chosen range produces the tables:
-   the system's P(u), and μ(u), σ(u) of every audible variable.
+3. A sweep over the system's ``candidate_range`` (continuation outward from the reference)
+   feeds :func:`~chaotic_sound.analysis.sweep.select_playable_range`.
+4. A hysteresis test sweeps the chosen range up and down; direction-dependent stretches are
+   excluded and the selection is repeated.
+5. The default parameter moves to the chaotic point nearest the middle of the range.
+6. A finer, more accurate pass on a uniform u grid (plus an exact node at the default),
+   by continuation outward from the default, produces the tables: the system's P(u), and
+   μ(u), σ(u), π(u) of every audible variable. The selection is re-applied to this pass and
+   the range shrunk if it reveals new problems.
 
 One period per system: x, y and z of an attractor are views of the same oscillation, so the
 note is set by the system's main oscillation whatever variable is heard; the choice of
@@ -33,11 +39,14 @@ from chaotic_sound.analysis.sweep import (
     SWEEP_SETTINGS,
     AnalysisSettings,
     PointResult,
+    RangeCriteria,
     RangeSelection,
     ReferenceScale,
     analyze_point,
+    choose_default,
+    hysteresis,
     reference_scale,
-    select_chaotic_range,
+    select_playable_range,
     sweep,
 )
 from chaotic_sound.catalog import Catalog, CatalogEntry, ObservableTable
@@ -53,23 +62,33 @@ class BuildSettings:
     sweep_points: int = 241
     sweep: AnalysisSettings = SWEEP_SETTINGS
     table_points: int = 129
-    """Uniform grid size; the default value is added as an extra node (exact default pitch)."""
+    """Uniform grid size of the tables; the default value is added as an extra node."""
     tables: AnalysisSettings = DEFAULT_SETTINGS
+    hysteresis_points: int = 65
+    hysteresis: AnalysisSettings = SWEEP_SETTINGS
+    hysteresis_std_tolerance: float = 0.10
+    hysteresis_period_tolerance: float = 0.03
     lyapunov_threshold: float = 0.05
     """Minimum λ·P_ref (nats per period) to call a point chaotic."""
     max_period_jump: float = 0.15
-    max_window_fraction: float = 0.03
-    """Widest periodic window accepted inside the range."""
+    min_prominence: float = 0.15
+    """Musicality: minimum spectral prominence of the tuning variable across the range."""
+    min_chaotic_fraction: float = 0.6
+    escape_margin_fraction: float = 0.03
+    """Minimum distance kept from an unbounded or drifting parameter value."""
+    default_neighborhood: int = 2
+    """The default and this many sweep neighbors on each side must be chaotic."""
+    prominence_threshold: float = 0.25
+    """Below this spectral prominence the period is taken from return times (ADR 0010)."""
+    drive_tolerance: float = 0.02
+    """Use the drive period only if the tuning variable's measured period is this close."""
     period_outlier_tolerance: float = 0.05
     """P(u) points further than this (relative) from their running median are replaced."""
     period_median_window: int = 5
-    escape_margin_fraction: float = 0.03
-    """Minimum distance kept from an unbounded or drifting parameter value."""
-    prominence_threshold: float = 0.25
-    """Below this spectral prominence the period is taken from return times (ADR 0010)."""
     steps_per_period: int = 256
     bounds_expansion: float = 1.0
     """Safety box = observed [min, max] widened by this many widths on each side."""
+    max_refinements: int = 6
 
 
 @dataclass
@@ -78,33 +97,43 @@ class SystemBuild:
 
     system: SystemDef
     reference: ReferenceScale
-    default_point: PointResult
+    reference_point: PointResult
     period_method: str
     period_observable: str
     sweep_results: list[PointResult]
+    hysteresis_values: list[float]
+    hysteresis_flags: list[bool]
     selection: RangeSelection
     table_results: list[PointResult]
     entry: CatalogEntry
+    notes: list[str]
 
 
-def choose_tuning_observable(default_point: PointResult) -> str:
-    """Pick the audible variable with the most prominent spectral peak at the default."""
-    return max(default_point.variables, key=lambda v: default_point.variables[v].prominence)
+def choose_tuning_observable(point: PointResult) -> str:
+    """Pick the audible variable with the most prominent spectral peak at ``point``."""
+    return max(point.variables, key=lambda v: point.variables[v].prominence)
 
 
 def choose_period_method(
-    system: SystemDef, default_point: PointResult, observable: str, prominence_threshold: float
+    system: SystemDef,
+    point: PointResult,
+    observable: str,
+    prominence_threshold: float,
+    drive_tolerance: float = 0.02,
 ) -> str:
     """How the system's characteristic period is measured (ADR 0010).
 
-    Forced systems use the exact drive period. Otherwise, if the tuning observable's spectral
-    peak holds at least ``prominence_threshold`` of its power, P is the period of the peak
-    centroid; if not (a broadband spectrum, e.g. Thomas), P is the mean return time between
-    maxima.
+    Forced systems use the exact drive period, but only if the tuning variable's measured
+    period is within ``drive_tolerance`` of it (some forced systems respond at a multiple of
+    the drive). Otherwise, if the tuning variable's spectral peak holds at least
+    ``prominence_threshold`` of its power, P is the period of the peak centroid; if not (a
+    broadband spectrum), P is the mean return time between maxima.
     """
-    if system.drive_period() is not None:
+    stats = point.variables[observable]
+    drive = system.drive_period()
+    if drive is not None and abs(stats.centroid_period / drive - 1.0) <= drive_tolerance:
         return "drive"
-    if default_point.variables[observable].prominence >= prominence_threshold:
+    if stats.prominence >= prominence_threshold:
         return "peak_centroid"
     return "return_time"
 
@@ -117,6 +146,8 @@ def point_period(
         if drive_period is None:
             raise ValueError("drive method needs a drive period")
         return drive_period
+    if not point.bounded:
+        return math.nan
     stats = point.variables[variable]
     if method == "peak_centroid":
         return stats.centroid_period
@@ -130,10 +161,11 @@ def robust_period_curve(
 ) -> tuple[NDArray[np.float64], list[int]]:
     """Replace outliers of a measured P(u) curve by the running median of their neighbors.
 
-    Narrow periodic windows can make a spectral-peak estimate jump to a subharmonic at a
-    single grid point (e.g. Lorenz near ρ ≈ 69.8). Pitch lock must follow the smooth loop
-    period instead, so isolated points deviating more than ``tolerance`` (relative) from the
-    running median of ``window`` points are replaced.
+    Narrow periodic windows can make a spectral estimate jump to a subharmonic at a single
+    grid point (e.g. Lorenz near ρ ≈ 69.8). Pitch lock must follow the smooth loop period
+    instead, so isolated points deviating more than ``tolerance`` (relative) from the running
+    median of ``window`` points are replaced. At the ends the window is mirrored, so end
+    points are judged by their real neighbors.
 
     Returns
     -------
@@ -144,9 +176,48 @@ def robust_period_curve(
     """
     from scipy.ndimage import median_filter
 
-    median = median_filter(periods, size=window, mode="nearest")
+    median = median_filter(periods, size=window, mode="mirror")
     outlier = np.abs(periods / median - 1.0) > tolerance
     return np.where(outlier, median, periods), [int(i) for i in np.flatnonzero(outlier)]
+
+
+def table_grid(n_points: int, u_default: float) -> NDArray[np.float64]:
+    """Uniform grid on [0, 1] plus an exact node at ``u_default``.
+
+    A uniform node closer than 1e-6 to the default is replaced by it (otherwise the two could
+    round to the same parameter value).
+    """
+    uniform = np.linspace(0.0, 1.0, n_points)
+    keep = np.abs(uniform - u_default) > 1e-6
+    if not keep[0]:
+        keep[0], u_default = True, 0.0
+    if not keep[-1]:
+        keep[-1], u_default = True, 1.0
+    return np.unique(np.append(uniform[keep], u_default))
+
+
+def _cut_period_jumps(
+    selection: RangeSelection,
+    p_grid: NDArray[np.float64],
+    curve: NDArray[np.float64],
+    p_default: float,
+    max_jump: float,
+) -> tuple[float, float, str, str]:
+    """Shrink ``selection`` to the jump-free stretch of the smoothed P(u) around the default.
+
+    Returns ``(lo, hi, lo_reason, hi_reason)``.
+    """
+    lo, hi = selection.lo, selection.hi
+    why_lo, why_hi = selection.lo_reason, selection.hi_reason
+    inside = np.flatnonzero((p_grid >= lo) & (p_grid <= hi))
+    k_def = int(np.argmin(np.abs(p_grid - p_default)))
+    for k in inside[:-1]:
+        if abs(curve[k + 1] / curve[k] - 1.0) > max_jump:
+            if k >= k_def and p_grid[k] < hi:
+                hi, why_hi = float(p_grid[k]), f"period jump at {p_grid[k + 1]:.6g}"
+            elif k < k_def and p_grid[k + 1] > lo:
+                lo, why_lo = float(p_grid[k + 1]), f"period jump at {p_grid[k]:.6g}"
+    return lo, hi, why_lo, why_hi
 
 
 def _dysts_info(system: SystemDef) -> dict[str, Any]:
@@ -166,16 +237,20 @@ def build_system(
 ) -> SystemBuild:
     """Run the full pipeline for one system and return its catalog entry plus diagnostics."""
     settings = settings or BuildSettings()
+    notes: list[str] = []
 
     def say(msg: str) -> None:
+        notes.append(msg)
         if progress is not None:
             progress(f"[{system.name}] {msg}")
 
     drive = system.drive_period()
     reference = reference_scale(system, settings.sweep)
-    default_point = analyze_point(system, system.default_value, reference, settings.tables)
-    observable = choose_tuning_observable(default_point)
-    method = choose_period_method(system, default_point, observable, settings.prominence_threshold)
+    ref_point = analyze_point(system, system.default_value, reference, settings.tables)
+    observable = choose_tuning_observable(ref_point)
+    method = choose_period_method(
+        system, ref_point, observable, settings.prominence_threshold, settings.drive_tolerance
+    )
     say(f"P_ref = {reference.period:.5g}; tuning on {observable} by {method}")
 
     def period_of(point: PointResult) -> float:
@@ -184,99 +259,131 @@ def build_system(
     def drift_of(point: PointResult) -> float:
         return point.variables[observable].drift if point.bounded else math.inf
 
+    def prominence_of(point: PointResult) -> float:
+        return point.variables[observable].prominence if point.bounded else 0.0
+
     lo_c, hi_c = system.candidate_range
-    width = hi_c - lo_c
+    criteria = RangeCriteria(
+        lyapunov_threshold=settings.lyapunov_threshold,
+        drift_threshold=settings.sweep.drift_threshold,
+        max_period_jump=settings.max_period_jump,
+        min_prominence=settings.min_prominence,
+        min_chaotic_fraction=settings.min_chaotic_fraction,
+        escape_margin=settings.escape_margin_fraction * (hi_c - lo_c),
+    )
+
+    def select(
+        results: list[PointResult], ref_value: float, extra: Callable[[PointResult], str | None]
+    ) -> RangeSelection:
+        return select_playable_range(
+            results, ref_value, reference.period, period_of, drift_of, prominence_of, criteria,
+            extra,
+        )  # fmt: skip
+
+    # 3. Sweep the candidate range from the reference value.
     values = np.unique(
         np.append(np.linspace(lo_c, hi_c, settings.sweep_points), system.default_value)
     )
     sweep_results = sweep(system, values, reference, settings.sweep)
-    selection = select_chaotic_range(
-        sweep_results,
-        system.default_value,
-        reference.period,
-        period_of,
-        drift_of,
-        drift_threshold=settings.sweep.drift_threshold,
-        lyapunov_threshold=settings.lyapunov_threshold,
-        max_period_jump=settings.max_period_jump,
-        max_window_width=settings.max_window_fraction * width,
-        escape_margin=settings.escape_margin_fraction * width,
-    )
-    say(
-        f"range [{selection.lo:.5g}, {selection.hi:.5g}] "
-        f"(low end: {selection.lo_reason}; high end: {selection.hi_reason})"
-    )
-    if not selection.hi > selection.lo:
-        raise RuntimeError(f"{system.name}: the selected range is empty")
+    hysteretic: list[tuple[float, float]] = []  # (lo, hi) stretches flagged so far
 
-    # The fine table pass can reveal problems the coarser sweep missed: an unsafe (drifting
-    # or unbounded) point, or a step in P(u) that pitch lock would turn into a glitch. Trim
-    # the range at the problem closest to the default on each side and recompute.
-    lo, hi = selection.lo, selection.hi
-    trims: list[str] = []
-    for _ in range(8):
-        u_default = (system.default_value - lo) / (hi - lo)
-        u_grid = np.unique(np.append(np.linspace(0.0, 1.0, settings.table_points), u_default))
-        p_grid = lo + u_grid * (hi - lo)
-        table_results = sweep(system, p_grid, reference, settings.tables)
-        i_def = int(np.argmin(np.abs(p_grid - system.default_value)))
-        unsafe = [
-            k for k, r in enumerate(table_results) if drift_of(r) > settings.tables.drift_threshold
-        ]
-        if i_def in unsafe:
-            raise RuntimeError(f"{system.name}: the default parameter itself is unsafe")
-        measured = np.array([period_of(r) if k not in unsafe else np.nan
-                             for k, r in enumerate(table_results)])  # fmt: skip
-        if unsafe:
-            # Keep strictly inside the unsafe points closest to the default.
-            keep_hi = min([k - 1 for k in unsafe if k > i_def], default=len(p_grid) - 1)
-            keep_lo = max([k + 1 for k in unsafe if k < i_def], default=0)
-            reason = f"unsafe point(s) at {[round(float(p_grid[k]), 6) for k in unsafe]}"
-        else:
-            curve, corrected = robust_period_curve(
-                measured, settings.period_median_window, settings.period_outlier_tolerance
-            )
-            steps = np.abs(np.diff(curve) / curve[:-1])
-            jumps = np.flatnonzero(steps > settings.max_period_jump)
-            if jumps.size == 0:
-                break
-            keep_hi = min([int(k) for k in jumps if k >= i_def], default=len(p_grid) - 1)
-            keep_lo = max([int(k) + 1 for k in jumps if k < i_def], default=0)
-            reason = f"P(u) step of {100 * steps.max():.0f}%"
-        new_lo, new_hi = float(p_grid[keep_lo]), float(p_grid[keep_hi])
-        if (
-            not new_lo < system.default_value <= new_hi
-            and not new_lo <= system.default_value < new_hi
-        ):
-            raise RuntimeError(f"{system.name}: trimming left an empty range")
-        trims.append(f"{reason}: [{lo:.5g}, {hi:.5g}] → [{new_lo:.5g}, {new_hi:.5g}]")
-        say(trims[-1])
-        lo, hi = new_lo, new_hi
+    def extra_unsafe(point: PointResult) -> str | None:
+        for a, b in hysteretic:
+            if a <= point.value <= b:
+                return "direction-dependent (hysteresis)"
+        return None
+
+    selection = select(sweep_results, system.default_value, extra_unsafe)
+    say(f"selected [{selection.lo:.5g}, {selection.hi:.5g}]")
+    say(f"  low end: {selection.lo_reason}; high end: {selection.hi_reason}")
+
+    # 4. Hysteresis test, repeated until the range is direction-independent.
+    hyst_values: list[float] = []
+    hyst_flags: list[bool] = []
+    by_value = {r.value: r for r in sweep_results}
+    for _ in range(settings.max_refinements):
+        grid = np.linspace(selection.lo, selection.hi, settings.hysteresis_points)
+        x_lo, x_hi = by_value[selection.lo].x_end, by_value[selection.hi].x_end
+        flags = hysteresis(
+            system, grid, reference, settings.hysteresis, x_lo, x_hi, observable, period_of,
+            std_tolerance=settings.hysteresis_std_tolerance,
+            period_tolerance=settings.hysteresis_period_tolerance,
+        )  # fmt: skip
+        hyst_values, hyst_flags = [float(v) for v in grid], flags
+        if all(flags):
+            break
+        step = grid[1] - grid[0]
+        bad = [float(v) for v, ok in zip(grid, flags, strict=True) if not ok]
+        hysteretic.extend((v - step, v + step) for v in bad)
+        say(f"hysteresis at {[round(v, 5) for v in bad]}; reselecting")
+        selection = select(sweep_results, system.default_value, extra_unsafe)
+        say(f"selected [{selection.lo:.5g}, {selection.hi:.5g}]")
     else:
-        raise RuntimeError(f"{system.name}: the range still has problems after trimming")
-    selection = RangeSelection(
-        lo=lo,
-        hi=hi,
-        lo_reason=selection.lo_reason if lo == selection.lo else "trimmed after table pass",
-        hi_reason=selection.hi_reason if hi == selection.hi else "trimmed after table pass",
-        windows=tuple(w for w in selection.windows if lo <= w[0] and w[1] <= hi),
+        raise RuntimeError(f"{system.name}: the range stays direction-dependent")
+
+    # 5. Default in the middle of the range; its state is on the attractor branch.
+    i_def = choose_default(
+        sweep_results, selection, reference.period, settings.lyapunov_threshold,
+        settings.default_neighborhood,
+    )  # fmt: skip
+    p_default = float(sweep_results[i_def].value)
+    x_default = sweep_results[i_def].x_end.copy()
+    say(
+        f"default {system.modulated_param} = {p_default:.5g} (dysts value {system.default_value:g})"
     )
 
+    # 6. Fine tables by continuation from the default; re-select on them until stable.
+    lo, hi = selection.lo, selection.hi
+    for _ in range(settings.max_refinements):
+        u_grid = table_grid(settings.table_points, (p_default - lo) / (hi - lo))
+        p_grid = lo + u_grid * (hi - lo)
+        table_results = sweep(
+            system, p_grid, reference, settings.tables, start_value=p_default, start_state=x_default
+        )
+        measured = np.array([period_of(r) for r in table_results])
+        curve, corrected = robust_period_curve(
+            measured, settings.period_median_window, settings.period_outlier_tolerance
+        )
+        fine = select(table_results, p_default, extra_unsafe)
+        new_lo, new_hi, why_lo, why_hi = _cut_period_jumps(
+            fine, p_grid, curve, p_default, settings.max_period_jump
+        )
+        if math.isclose(new_lo, lo) and math.isclose(new_hi, hi):
+            selection = RangeSelection(
+                lo=lo, hi=hi, lo_reason=selection.lo_reason, hi_reason=selection.hi_reason,
+                windows=fine.windows, chaotic_fraction=fine.chaotic_fraction,
+            )  # fmt: skip
+            break
+        say(f"table pass: [{lo:.5g}, {hi:.5g}] → [{new_lo:.5g}, {new_hi:.5g}]")
+        lo_reason = selection.lo_reason if math.isclose(new_lo, lo) else f"table pass: {why_lo}"
+        hi_reason = selection.hi_reason if math.isclose(new_hi, hi) else f"table pass: {why_hi}"
+        selection = RangeSelection(new_lo, new_hi, lo_reason, hi_reason)
+        lo, hi = new_lo, new_hi
+        if not lo <= p_default <= hi:
+            raise RuntimeError(f"{system.name}: the table pass excluded the default")
+    else:
+        raise RuntimeError(f"{system.name}: the table pass did not converge")
+
+    k_def = int(np.argmin(np.abs(p_grid - p_default)))
+    x_default = table_results[k_def].x_end.copy()
     entry = _make_entry(
         system, settings, reference, method, observable, selection, u_grid, table_results,
-        measured, curve, corrected, trims,
+        measured, curve, corrected, p_default, x_default, notes,
     )  # fmt: skip
     say(f"P(u) in [{entry.period_table.min():.5g}, {entry.period_table.max():.5g}]")
     return SystemBuild(
         system=system,
         reference=reference,
-        default_point=default_point,
+        reference_point=ref_point,
         period_method=method,
         period_observable=observable,
         sweep_results=sweep_results,
+        hysteresis_values=hyst_values,
+        hysteresis_flags=hyst_flags,
         selection=selection,
         table_results=table_results,
         entry=entry,
+        notes=notes,
     )
 
 
@@ -292,12 +399,15 @@ def _make_entry(
     measured: NDArray[np.float64],
     period_table: NDArray[np.float64],
     corrected: list[int],
-    trims: list[str],
+    p_default: float,
+    x_default: NDArray[np.float64],
+    notes: list[str],
 ) -> CatalogEntry:
     observables = {
         var: ObservableTable(
             mean=np.array([r.variables[var].mean for r in results]),
             std=np.array([r.variables[var].std for r in results]),
+            peak=np.array([r.variables[var].peak for r in results]),
             prominence=np.array([r.variables[var].prominence for r in results]),
         )
         for var in system.audio_variables
@@ -313,11 +423,11 @@ def _make_entry(
         span = vmax - vmin
         lo[i] = vmin - settings.bounds_expansion * span
         hi[i] = vmax + settings.bounds_expansion * span
+    x0 = x_default.copy()
+    for i in system.phase_indices:
+        x0[i] = x0[i] % (2.0 * math.pi)
 
     lyap = [r.lyapunov for r in results]
-    chaotic_fraction = float(
-        np.mean([x * reference.period > settings.lyapunov_threshold for x in lyap])
-    )
     steps = np.abs(np.diff(period_table) / period_table[:-1])
     info: dict[str, Any] = {
         "display_name": system.display_name,
@@ -332,12 +442,15 @@ def _make_entry(
         "range_selection": {
             "lo_reason": selection.lo_reason,
             "hi_reason": selection.hi_reason,
-            "accepted_windows": [list(w) for w in selection.windows],
-            "trims": trims,
+            "periodic_windows": [list(w) for w in selection.windows],
+            "chaotic_fraction": selection.chaotic_fraction,
         },
+        "build_log": notes,
         "period_measured": measured.tolist(),
         "period_corrected_indices": corrected,
-        "chaotic_fraction": chaotic_fraction,
+        "chaotic_fraction": float(
+            np.mean([x * reference.period > settings.lyapunov_threshold for x in lyap])
+        ),
         "lyapunov": lyap,
         "lyapunov_per_period": [x * reference.period for x in lyap],
         "max_relative_period_step": float(steps.max()) if steps.size else 0.0,
@@ -348,7 +461,8 @@ def _make_entry(
         param=system.modulated_param,
         p_min=selection.lo,
         p_max=selection.hi,
-        p_default=system.default_value,
+        p_default=p_default,
+        p_reference=system.default_value,
         u_grid=u_grid,
         period_table=period_table,
         period_method=method,
@@ -359,7 +473,7 @@ def _make_entry(
         steps_per_period=settings.steps_per_period,
         bounds_lo=lo,
         bounds_hi=hi,
-        initial_condition=system.initial_state(),
+        initial_condition=x0,
         info=info,
     )
 

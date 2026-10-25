@@ -17,20 +17,24 @@ Example
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 
-from chaotic_sound.blocks import BLOCK_TYPES, Block, Dynamical, Output, SignalType
+from chaotic_sound.blocks import BLOCK_TYPES, Block, BlockContext, SignalType
 from chaotic_sound.catalog import Catalog
 
 PATCH_FORMAT = "chaotic-sound-patch"
 PATCH_VERSION = 0
 DEFAULT_SAMPLE_RATE = 48_000
 DEFAULT_BLOCK_SIZE = 512
+_TOP_KEYS = {"format", "version", "blocks", "cables", "ui"}
+_BLOCK_KEYS = {"id", "type", "params", "ui"}
+_CABLE_KEYS = {"from", "to"}
 
 
 class PatchError(ValueError):
@@ -47,7 +51,10 @@ class Cable:
     dst_port: str
 
     @staticmethod
-    def _split(ref: str) -> tuple[str, str]:
+    def _split(ref: Any) -> tuple[str, str]:
+        # Block ids never contain '.', so the first '.' separates block and port (spec §5).
+        if not isinstance(ref, str):
+            raise PatchError(f"port reference must be a string, got {ref!r}")
         block, sep, port = ref.partition(".")
         if not sep or not block or not port:
             raise PatchError(f"port reference must look like 'block.port', got {ref!r}")
@@ -70,11 +77,21 @@ class Cable:
 
 @dataclass(frozen=True)
 class RenderStats:
-    """Diagnostics of the last render."""
+    """Diagnostics of the last render, per block (e.g. ``{"lor": {"safety_resets": 0}}``)."""
 
     sample_rate: float
     n_samples: int
-    safety_resets: dict[str, int]
+    diagnostics: dict[str, dict[str, int]] = field(default_factory=dict)
+
+    @property
+    def safety_resets(self) -> dict[str, int]:
+        """Safety resets per dynamical block."""
+        return {b: d["safety_resets"] for b, d in self.diagnostics.items() if "safety_resets" in d}
+
+
+def sanitize_control(x: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Non-finite control values become 0 (+inf → 1), then clip to [0, 1] (spec §3)."""
+    return np.clip(np.nan_to_num(x, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0)
 
 
 class Patch:
@@ -83,38 +100,41 @@ class Patch:
     Parameters
     ----------
     catalog
-        Catalog given to every dynamical block created through :meth:`add_block` or
-        :meth:`from_dict` (default: the repository catalog).
+        Catalog handed to every block through its :class:`~chaotic_sound.blocks.BlockContext`
+        (default: the repository catalog, loaded when a dynamical block first needs it).
     """
 
     def __init__(self, catalog: Catalog | None = None) -> None:
-        self.catalog = catalog
+        self.context = BlockContext(catalog=catalog)
         self.blocks: dict[str, Block] = {}
         self.cables: list[Cable] = []
+        self.ui: dict[str, Any] = {}
         self.last_render: RenderStats | None = None
+
+    @property
+    def catalog(self) -> Catalog | None:
+        """The catalog given at construction (``None`` means the default one)."""
+        return self.context.catalog
 
     # -- building ----------------------------------------------------------------------
 
     def add(self, block: Block) -> Block:
-        """Add an existing block; ids must be unique."""
+        """Add an existing block; ids must be unique and there is at most one output."""
         if block.id in self.blocks:
             raise PatchError(f"duplicate block id {block.id!r}")
-        if isinstance(block, Output) and any(isinstance(b, Output) for b in self.blocks.values()):
+        if block.IS_SINK and any(b.IS_SINK for b in self.blocks.values()):
             raise PatchError("a patch has exactly one output block")
         self.blocks[block.id] = block
         return block
 
     def add_block(self, type_name: str, block_id: str, **params: Any) -> Block:
         """Create a block of the given patch-JSON ``type`` and add it."""
-        try:
-            cls = BLOCK_TYPES[type_name]
-        except KeyError:
-            raise PatchError(
-                f"unknown block type {type_name!r}; known: {sorted(BLOCK_TYPES)}"
-            ) from None
-        if cls is Dynamical:
-            return self.add(Dynamical(block_id, catalog=self.catalog, **params))
-        return self.add(cls(block_id, **params))
+        cls = BLOCK_TYPES.get(type_name) if isinstance(type_name, str) else None
+        if cls is None:
+            raise PatchError(f"unknown block type {type_name!r}; known: {sorted(BLOCK_TYPES)}")
+        if block_id in self.blocks:
+            raise PatchError(f"duplicate block id {block_id!r}")
+        return self.add(cls(block_id, context=self.context, **params))
 
     def connect(self, src: str, dst: str) -> Cable:
         """Connect output ``"block.port"`` to input ``"block.port"`` (spec §3 rules)."""
@@ -125,22 +145,23 @@ class Patch:
         src_block, dst_block = self.blocks[cable.src_block], self.blocks[cable.dst_block]
         try:
             out_port = src_block.output_port(cable.src_port)
-        except KeyError as exc:
-            raise PatchError(str(exc)) from None
-        try:
             in_port = dst_block.input_port(cable.dst_port)
         except KeyError as exc:
-            raise PatchError(str(exc)) from None
+            raise PatchError(str(exc.args[0])) from None
         if out_port.type is not in_port.type:
             raise PatchError(
                 f"cannot connect {src} ({out_port.type.value}) to {dst} ({in_port.type.value})"
             )
         if cable in self.cables:
             raise PatchError(f"cable {src} → {dst} already exists")
-        if not in_port.multi and any(
+        taken = any(
             c.dst_block == cable.dst_block and c.dst_port == cable.dst_port for c in self.cables
-        ):
-            raise PatchError(f"input {dst} accepts only one cable")
+        )
+        if taken and not in_port.multi:
+            helper = "control_sum" if in_port.type is SignalType.CONTROL else "sum"
+            raise PatchError(
+                f"input {dst} accepts only one cable (combine signals with a {helper} block)"
+            )
         self.cables.append(cable)
         try:
             self.order()
@@ -162,14 +183,15 @@ class Patch:
         if block_id not in self.blocks:
             raise PatchError(f"no block with id {block_id!r}")
         del self.blocks[block_id]
+        self.ui.pop(block_id, None)
         self.cables = [c for c in self.cables if block_id not in (c.src_block, c.dst_block)]
 
     # -- validation and order ----------------------------------------------------------
 
     @property
-    def output(self) -> Output:
-        """The patch's single output block."""
-        outputs = [b for b in self.blocks.values() if isinstance(b, Output)]
+    def output(self) -> Block:
+        """The patch's single output (sink) block."""
+        outputs = [b for b in self.blocks.values() if b.IS_SINK]
         if len(outputs) != 1:
             raise PatchError(f"a patch needs exactly one output block (found {len(outputs)})")
         return outputs[0]
@@ -179,7 +201,7 @@ class Patch:
 
         Raises :class:`PatchError` if the cables form a cycle (feedback is not in v1).
         """
-        indegree = {bid: 0 for bid in self.blocks}
+        indegree = dict.fromkeys(self.blocks, 0)
         children: dict[str, list[str]] = {bid: [] for bid in self.blocks}
         for c in self.cables:
             indegree[c.dst_block] += 1
@@ -199,7 +221,7 @@ class Patch:
         return ordered
 
     def validate(self) -> None:
-        """Check the whole patch (one output, acyclic, cables consistent)."""
+        """Check the whole patch (one output, acyclic)."""
         _ = self.output
         self.order()
 
@@ -220,7 +242,11 @@ class Patch:
         """
         if (seconds is None) == (n_samples is None):
             raise ValueError("give exactly one of seconds or n_samples")
+        if not (math.isfinite(sample_rate) and sample_rate > 0):
+            raise ValueError(f"sample_rate must be a positive number, got {sample_rate}")
         n_total = round(seconds * sample_rate) if seconds is not None else int(n_samples or 0)
+        if n_total < 0:
+            raise ValueError("the render length must not be negative")
         if block_size < 1:
             raise ValueError("block_size must be ≥ 1")
         self.validate()
@@ -245,50 +271,80 @@ class Patch:
                     if not sources:
                         inputs[port.name] = None
                         continue
-                    total = signals[sources[0]].copy()
+                    # Each control cable is sanitized on its own; a multi-cable control input
+                    # (control_sum.in) receives the raw sum and applies its own gain and clip.
+                    clean = sanitize_control if port.type is SignalType.CONTROL else np.copy
+                    total = clean(signals[sources[0]])
                     for src in sources[1:]:
-                        total += signals[src]
-                    if port.type is SignalType.CONTROL:
-                        np.clip(total, 0.0, 1.0, out=total)
+                        total = total + clean(signals[src])
                     inputs[port.name] = total
                 for name, signal in block.process(n, inputs).items():
                     signals[(bid, name)] = signal
             out[pos : pos + n] = signals[(output_id, "main")]
             pos += n
 
-        resets = {b.id: b.resets for b in self.blocks.values() if isinstance(b, Dynamical)}
-        self.last_render = RenderStats(sample_rate, n_total, resets)
+        diagnostics = {b.id: d for b in self.blocks.values() if (d := b.diagnostics())}
+        self.last_render = RenderStats(sample_rate, n_total, diagnostics)
         return out
 
     # -- serialization -----------------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
-        """Patch JSON (spec §5)."""
+        """Patch JSON (spec §5); each block's optional ``ui`` object is preserved."""
+        blocks = []
+        for b in self.blocks.values():
+            d = b.to_dict()
+            if b.id in self.ui:
+                d["ui"] = self.ui[b.id]
+            blocks.append(d)
         return {
             "format": PATCH_FORMAT,
             "version": PATCH_VERSION,
-            "blocks": [b.to_dict() for b in self.blocks.values()],
+            "blocks": blocks,
             "cables": [c.to_dict() for c in self.cables],
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], catalog: Catalog | None = None) -> Patch:
-        """Build a patch from its JSON form; unknown block types or params are errors."""
-        if data.get("format") != PATCH_FORMAT:
+        """Build a patch from its JSON form; unknown keys, types or params are errors."""
+        if not isinstance(data, dict) or data.get("format") != PATCH_FORMAT:
             raise PatchError("not a chaotic_sound patch (missing 'format')")
         if data.get("version") != PATCH_VERSION:
             raise PatchError(f"unsupported patch version {data.get('version')!r}")
+        if unknown := set(data) - _TOP_KEYS:
+            raise PatchError(f"unknown top-level key(s) {sorted(unknown)}")
         patch = cls(catalog=catalog)
         for spec in data.get("blocks", []):
-            params = dict(spec.get("params", {}))
-            patch.add_block(spec["type"], spec["id"], **params)
+            if (
+                not isinstance(spec, dict)
+                or set(spec) - _BLOCK_KEYS
+                or not {"id", "type"} <= set(spec)
+            ):
+                raise PatchError(
+                    f"bad block entry {spec!r} (needs 'id' and 'type'; "
+                    f"allowed keys: {sorted(_BLOCK_KEYS)})"
+                )
+            params = spec.get("params", {})
+            if not isinstance(params, dict):
+                raise PatchError(f"block {spec.get('id')!r}: 'params' must be an object")
+            params = {k: v for k, v in params.items() if v is not None}  # null = default
+            try:
+                patch.add_block(spec["type"], spec["id"], **params)
+            except PatchError:
+                raise
+            except ValueError as exc:
+                raise PatchError(str(exc)) from None
+            if "ui" in spec:
+                patch.ui[spec["id"]] = spec["ui"]
         for cable in data.get("cables", []):
+            if not isinstance(cable, dict) or set(cable) != _CABLE_KEYS:
+                raise PatchError(f"bad cable entry {cable!r} (it needs exactly 'from' and 'to')")
             patch.connect(cable["from"], cable["to"])
         return patch
 
     def to_json(self, indent: int = 2) -> str:
         """Patch JSON as a string."""
-        return json.dumps(self.to_dict(), indent=indent)
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
     @classmethod
     def from_json(cls, text: str, catalog: Catalog | None = None) -> Patch:
@@ -296,10 +352,10 @@ class Patch:
         return cls.from_dict(json.loads(text), catalog=catalog)
 
     def save(self, path: str | Path) -> None:
-        """Write the patch JSON to ``path``."""
-        Path(path).write_text(self.to_json() + "\n")
+        """Write the patch JSON to ``path`` (UTF-8)."""
+        Path(path).write_text(self.to_json() + "\n", encoding="utf-8")
 
     @classmethod
     def load(cls, path: str | Path, catalog: Catalog | None = None) -> Patch:
-        """Read a patch JSON file."""
-        return cls.from_json(Path(path).read_text(), catalog=catalog)
+        """Read a patch JSON file (UTF-8)."""
+        return cls.from_json(Path(path).read_text(encoding="utf-8"), catalog=catalog)

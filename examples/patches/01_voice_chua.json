@@ -9,11 +9,10 @@
         "system": "chua",
         "note": "A3",
         "cents": 0.0,
-        "observable": null,
-        "observable_right": null,
+        "pitch_min": "A1",
+        "pitch_max": "A5",
         "pitch_lock": true,
-        "seed": null,
-        "param": null,
+        "amp_curve": "perceptual",
         "amp": 1.0
       }
     },

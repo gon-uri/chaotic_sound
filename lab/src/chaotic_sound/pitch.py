@@ -1,7 +1,12 @@
 """Musical pitch helpers: note names ↔ MIDI numbers ↔ frequency (spec §4.2 step 3).
 
 Conventions: scientific pitch notation (middle C = C4), A4 = 440 Hz, 12-tone equal
-temperament. Accidentals: ``#``/``♯`` (sharp) and ``b``/``♭`` (flat), at most two.
+temperament.
+
+Note-name grammar (spec §4.2): a letter ``A``–``G`` (either case), at most one accidental
+(``#`` or ``♯`` = sharp, ``b`` or ``♭`` = flat), then an octave from ``-1`` to ``9``, with no
+spaces. Examples: ``A4``, ``c#3``, ``Bb2``, ``C-1``. Dynamical boxes accept notes from
+:data:`NOTE_MIN` to :data:`NOTE_MAX` (C0 … C8).
 """
 
 from __future__ import annotations
@@ -13,7 +18,11 @@ A4_HZ = 440.0
 A4_MIDI = 69
 
 _LETTER_SEMITONES = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
-_NOTE_RE = re.compile(r"^\s*([A-Ga-g])([#♯b♭]{0,2})(-?\d+)\s*$")
+_NOTE_RE = re.compile(r"^([A-Ga-g])([#♯b♭]?)(-1|[0-9])$")
+NOTE_MIN = 12
+"""MIDI number of C0, the lowest note a dynamical box accepts."""
+NOTE_MAX = 108
+"""MIDI number of C8, the highest note a dynamical box accepts."""
 _SHARP_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 
 
@@ -29,7 +38,7 @@ def note_to_midi(note: str) -> int:
     if match is None:
         raise ValueError(f"not a note name: {note!r} (expected e.g. 'A4', 'C#3', 'Bb2')")
     letter, accidentals, octave = match.groups()
-    shift = sum(1 if a in "#♯" else -1 for a in accidentals)
+    shift = (1 if accidentals in "#♯" else -1) if accidentals else 0
     return 12 * (int(octave) + 1) + _LETTER_SEMITONES[letter.upper()] + shift
 
 

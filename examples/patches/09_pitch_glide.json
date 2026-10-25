@@ -1,0 +1,46 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "glide",
+      "type": "modulator",
+      "params": {
+        "shape": "triangle",
+        "period_s": 12.0,
+        "mode": "loop"
+      }
+    },
+    {
+      "id": "rikitake",
+      "type": "dynamical",
+      "params": {
+        "system": "rikitake",
+        "note": "A3",
+        "cents": 0.0,
+        "pitch_min": "A1",
+        "pitch_max": "A5",
+        "pitch_lock": true,
+        "amp_curve": "perceptual",
+        "amp": 1.0
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "params": {
+        "volume": 1.0
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": "glide.out",
+      "to": "rikitake.pitch"
+    },
+    {
+      "from": "rikitake.out",
+      "to": "out.in"
+    }
+  ]
+}

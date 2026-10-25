@@ -17,14 +17,15 @@ class SumParams(BlockParams):
     gain: float = 1.0
 
     def __post_init__(self) -> None:
+        self.check_types()
         _check_unit("gain", self.gain)
 
 
 class Sum(Block):
-    """Mixer: ``out = gain · Σ inputs``.
+    """Audio mixer: ``out = gain · Σ inputs`` (spec §4.3).
 
-    The patch graph already adds all cables connected to ``in`` (spec §3, fan-in), so this
-    block only applies the gain; with nothing connected it outputs silence.
+    ``in`` is the only port that accepts several audio cables; the patch graph adds them, so
+    this block only applies the gain. With nothing connected it outputs silence.
     """
 
     type_name = "sum"

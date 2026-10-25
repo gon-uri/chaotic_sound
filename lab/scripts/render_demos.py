@@ -21,7 +21,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from chaotic_sound.analysis.spectrum import mean_return_time, spectral_peak
+from chaotic_sound.analysis.spectrum import measure_pitch
 from chaotic_sound.blocks import Dynamical
 from chaotic_sound.catalog import load_default_catalog
 from chaotic_sound.patch import Patch
@@ -108,19 +108,57 @@ def duffing_drive() -> Patch:
 
 
 def chord() -> Patch:
-    """Build a 'chaotic chord' (A major over two octaves) with a slow LFO on Lorenz."""
+    """Build a 'chaotic chord' (A major over two octaves, all five systems), LFO on Lorenz."""
     p = Patch()
     p.add_block("modulator", "lfo", shape="triangle", period_s=10.0)
-    p.add_block("dynamical", "rossler", system="rossler", note="A2", amp=0.8)
-    p.add_block("dynamical", "chua", system="chua", note="E3", amp=0.6)
-    p.add_block("dynamical", "lorenz", system="lorenz", note="A3", amp=0.6)
-    p.add_block("dynamical", "duffing", system="duffing", note="C#4", amp=0.5)
-    p.add_block("sum", "mix", gain=0.7)
+    p.add_block("dynamical", "rossler", system="rossler", note="A2", amp=0.9)
+    p.add_block("dynamical", "chua", system="chua", note="E3", amp=0.8)
+    p.add_block("dynamical", "lorenz", system="lorenz", note="A3", amp=0.8)
+    p.add_block("dynamical", "rikitake", system="rikitake", note="C#4", amp=0.7)
+    p.add_block("dynamical", "duffing", system="duffing", note="E4", amp=0.7)
+    p.add_block("sum", "mix", gain=0.6)
     p.add_block("output", "out", volume=0.9)
     p.connect("lfo.out", "lorenz.param")
-    for src in ("rossler", "chua", "lorenz", "duffing"):
+    for src in ("rossler", "chua", "lorenz", "rikitake", "duffing"):
         p.connect(f"{src}.out", "mix.in")
     p.connect("mix.out", "out.in")
+    return p
+
+
+def pitch_glide() -> Patch:
+    """Pitch input: a slow triangle sweeps Rikitake from A1 to A5 and back (pitch lock on)."""
+    p = Patch()
+    p.add_block("modulator", "glide", shape="triangle", period_s=12.0)
+    p.add_block("dynamical", "rikitake", system="rikitake", pitch_min="A1", pitch_max="A5")
+    p.add_block("output", "out", volume=1.0)
+    p.connect("glide.out", "rikitake.pitch")
+    p.connect("rikitake.out", "out.in")
+    return p
+
+
+def control_sum_vibrato() -> Patch:
+    """Control Sum: a slow sine plus a fast small sine on Chua's parameter."""
+    p = Patch()
+    p.add_block("modulator", "slow", shape="sine", period_s=8.0)
+    p.add_block("modulator", "fast", shape="triangle", period_s=0.25)
+    p.add_block("control_sum", "both", gain=0.6)
+    p.add_block("dynamical", "chua", system="chua", note="E3")
+    p.add_block("output", "out", volume=1.0)
+    p.connect("slow.out", "both.in")
+    p.connect("fast.out", "both.in")
+    p.connect("both.out", "chua.param")
+    p.connect("chua.out", "out.in")
+    return p
+
+
+def amp_envelope() -> Patch:
+    """Perceptual amp curve: a 6 s once ramp-down on Lorenz amp fades evenly to silence."""
+    p = Patch()
+    p.add_block("modulator", "env", shape="ramp_down", period_s=6.0, mode="once")
+    p.add_block("dynamical", "lorenz", system="lorenz", note="D3")
+    p.add_block("output", "out", volume=1.0)
+    p.connect("env.out", "lorenz.amp")
+    p.connect("lorenz.out", "out.in")
     return p
 
 
@@ -150,9 +188,16 @@ DEMOS: list[Demo] = [
     Demo("04_chua_square", "Square LFO flips Chua between both ends of its range", 12.0,
          chua_square),
     Demo("05_duffing_drive", "Slow sine on the Duffing drive amplitude γ", 24.0, duffing_drive),
-    Demo("06_chaotic_chord", "Rössler A2 + Chua E3 + Lorenz A3 + Duffing C#4", 20.0, chord),
+    Demo("06_chaotic_chord", "Rössler A2, Chua E3, Lorenz A3, Rikitake C#4, Duffing E4", 20.0,
+         chord),
     Demo("07_twins", "Two identical Rössler boxes drifting apart (sensitive dependence)", 12.0,
          twins),
+    Demo("09_pitch_glide", "Pitch input: Rikitake glides A1 → A5 → A1 in 12 s", 12.0,
+         pitch_glide),
+    Demo("10_control_sum", "Control Sum: slow sine + fast triangle on Chua's α", 16.0,
+         control_sum_vibrato),
+    Demo("11_amp_envelope", "Perceptual amp: Lorenz fades out evenly over 6 s", 7.0,
+         amp_envelope),
 ]  # fmt: skip
 
 
@@ -171,17 +216,14 @@ def spectrogram(audio: np.ndarray, path: Path, title: str) -> None:
 
 
 def pitch_of(patch: Patch, audio: np.ndarray) -> tuple[float, float] | None:
-    """Measured frequency and target of a single-voice patch (catalog's method)."""
+    """Measured frequency and target of a single, unmodulated-pitch voice (catalog's method)."""
     voices = [b for b in patch.blocks.values() if isinstance(b, Dynamical)]
-    if len(voices) != 1:
+    if len(voices) != 1 or any(c.dst_port == "pitch" for c in patch.cables):
         return None
     block = voices[0]
-    x = audio[FS // 2 :, 0]
-    if block.entry.period_method == "return_time":
-        f = 1.0 / mean_return_time(x, 1.0 / FS).mean
-    else:
-        peak = spectral_peak(x, 1.0 / FS, nperseg=2**16, f_min=0.25 * block.frequency_hz)
-        f = peak.centroid_frequency
+    if not block.params.pitch_lock:
+        return None  # the pitch drifts on purpose
+    f = measure_pitch(audio[FS // 2 :, 0], FS, block.entry.period_method, block.frequency_hz)
     return f, block.frequency_hz
 
 
@@ -235,7 +277,7 @@ def main() -> None:
         f"Targets: A3 = {note_to_hz('A3'):.2f} Hz. Pitch error is measured with the catalog's "
         "method for that system (peak centroid, return time, or drive) on the rendered audio.",
     ]
-    (OUT / "report.md").write_text("\n".join(lines) + "\n")
+    (OUT / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"wrote {OUT}")
 
 

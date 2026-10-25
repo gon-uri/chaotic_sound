@@ -26,7 +26,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from chaotic_sound.analysis.catalog_builder import SystemBuild, build_catalog, point_period
+from chaotic_sound.analysis.catalog_builder import SystemBuild, build_catalog
 from chaotic_sound.catalog import Catalog, default_catalog_path
 from chaotic_sound.integrate import trajectory
 from chaotic_sound.systems import get_system, list_systems
@@ -46,11 +46,13 @@ def plot_build(build: SystemBuild, path: Path) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
     fig.suptitle(
         f"{system.display_name}: {system.modulated_param} ∈ [{entry.p_min:.4g}, {entry.p_max:.4g}]"
-        f"  (default {entry.p_default:g}, tuning on {obs} by {build.period_method})"
+        f"  (default {entry.p_default:.4g}, dysts {entry.p_reference:g}; "
+        f"tuning on {obs} by {build.period_method})"
     )
     for ax in axes.flat[:3]:
-        ax.axvspan(entry.p_min, entry.p_max, color="tab:green", alpha=0.12, label="chosen range")
-        ax.axvline(entry.p_default, color="k", lw=0.8, ls="--", label="dysts default")
+        ax.axvspan(entry.p_min, entry.p_max, color="tab:green", alpha=0.12, label="knob range")
+        ax.axvline(entry.p_default, color="k", lw=1.0, label="default")
+        ax.axvline(entry.p_reference, color="k", lw=0.8, ls=":", label="dysts value")
         for w in build.selection.windows:
             ax.axvspan(w[0] - 1e-9, w[1] + 1e-9, color="tab:red", alpha=0.25)
         ax.set_xlabel(system.modulated_param)
@@ -61,6 +63,11 @@ def plot_build(build: SystemBuild, path: Path) -> None:
     if unb:
         ax.plot(unb, np.zeros(len(unb)), "rx", label="unbounded")
     ax.axhline(0.05, color="tab:red", lw=0.6, ls=":", label="chaos threshold")
+    bad = [
+        v for v, ok in zip(build.hysteresis_values, build.hysteresis_flags, strict=True) if not ok
+    ]
+    if bad:
+        ax.plot(bad, np.zeros(len(bad)), "m^", label="hysteresis (last check)")
     ax.set_ylabel("λ_max · P_ref  (nats per period)")
     ax.set_title("Largest Lyapunov exponent (sweep, with continuation)")
     ax.legend(fontsize=7)
@@ -90,14 +97,16 @@ def plot_build(build: SystemBuild, path: Path) -> None:
     ax = axes[1, 0]
     for var, table in entry.observables.items():
         ax.plot(p_grid, table.std / table.std[0], "-", label=f"σ_{var}(u)/σ_{var}(0)")
+        ax.plot(p_grid, table.peak / table.std, "--", lw=0.8, label=f"crest π/σ {var}")
         ax.plot(p_grid, table.prominence, ":", label=f"prominence {var}")
-    ax.set_title("Loudness normalization and pitch clarity (tables)")
+    ax.set_title("Level, crest factor and pitch clarity (tables)")
     ax.legend(fontsize=7)
 
     ax = axes[1, 1]
     dt = ref.period / 64
-    _, x = trajectory(system, dt=dt, n_samples=64 * 20, h_max=entry.h_max)
-    traj, _ = trajectory(system, x0=x, dt=dt, n_samples=64 * 150, h_max=entry.h_max)
+    params = system.params_array(**{system.modulated_param: entry.p_default})
+    traj, _ = trajectory(system, params, entry.initial_condition, dt=dt, n_samples=64 * 150,
+                         h_max=entry.h_max)  # fmt: skip
     audio = list(system.audio_variables)
     i, j = system.variable_index(audio[0]), system.variable_index(audio[-1])
     if system.name == "lorenz":
@@ -105,7 +114,7 @@ def plot_build(build: SystemBuild, path: Path) -> None:
     ax.plot(traj[:, i], traj[:, j], lw=0.3)
     ax.set_xlabel(system.variables[i])
     ax.set_ylabel(system.variables[j])
-    ax.set_title("Attractor at the default parameter")
+    ax.set_title(f"Attractor at the default {system.modulated_param} = {entry.p_default:.4g}")
     fig.tight_layout()
     fig.savefig(path, dpi=110)
     plt.close(fig)
@@ -114,18 +123,20 @@ def plot_build(build: SystemBuild, path: Path) -> None:
 def summary_table(builds: dict[str, SystemBuild]) -> str:
     """Markdown summary of the build (pasted into docs/math/tuning.md)."""
     rows = [
-        "| System | Param | Range | u(default) | Tuning on | Method | P(u) range | "
-        "Chaotic | Windows | Sub-steps @A4 |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| System | Param | Range (knob 0 → 1) | Default (dysts) | Knob at default | Tuning on | "
+        "Method | P across range | Chaotic | Windows | Min prominence | RK4 sub-steps @A4 |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for b in builds.values():
         e = b.entry
         substeps = math.ceil(float(np.max(e.period_table)) * 440.0 / 48_000.0 / e.h_max)
+        prom = float(np.min(e.observables[b.period_observable].prominence))
         rows.append(
             f"| {b.system.display_name} | {e.param} | [{e.p_min:.4g}, {e.p_max:.4g}] | "
-            f"{e.u_default:.3f} | {b.period_observable} | {b.period_method} | "
-            f"{e.period_table.min():.4g}–{e.period_table.max():.4g} | "
-            f"{100 * e.info['chaotic_fraction']:.0f}% | {len(b.selection.windows)} | {substeps} |"
+            f"{e.p_default:.4g} ({e.p_reference:g}) | {e.u_default:.2f} | {b.period_observable} | "
+            f"{b.period_method} | {e.period_table.min():.4g}–{e.period_table.max():.4g} | "
+            f"{100 * e.info['chaotic_fraction']:.0f}% | {len(b.selection.windows)} | {prom:.2f} | "
+            f"{substeps} |"
         )
     rows.append("")
     for b in builds.values():
@@ -133,8 +144,10 @@ def summary_table(builds: dict[str, SystemBuild]) -> str:
         rows.append(
             f"- **{b.system.display_name}**: low end: {sel['lo_reason']}; "
             f"high end: {sel['hi_reason']}."
-            + (f" Trims: {'; '.join(sel['trims'])}." if sel["trims"] else "")
         )
+        extra = [n for n in b.notes if n.startswith(("hysteresis", "table pass"))]
+        if extra:
+            rows.append(f"  Build log: {'; '.join(extra)}.")
     return "\n".join(rows) + "\n"
 
 
@@ -160,13 +173,11 @@ def main() -> None:
     print(f"wrote {args.output}")
 
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "summary.md").write_text(summary_table(builds))
+    (OUT / "summary.md").write_text(summary_table(builds), encoding="utf-8")
     if not args.no_plots:
         for name, build in builds.items():
             plot_build(build, OUT / f"{name}.png")
         print(f"plots in {OUT}")
-    # Sanity: the period function used by the builder is importable for notebooks.
-    assert callable(point_period)
     print(f"done in {time.time() - start:.0f} s")
 
 

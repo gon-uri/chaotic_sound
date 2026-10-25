@@ -35,7 +35,7 @@ def test_rhs_matches_dysts(name: str) -> None:
 
 
 def test_registry() -> None:
-    assert list_systems() == ["lorenz", "rossler", "chua", "thomas", "duffing"]
+    assert list_systems() == ["lorenz", "rossler", "chua", "rikitake", "duffing"]
     assert set(SYSTEMS) == set(list_systems())
     with pytest.raises(KeyError):
         get_system("nope")

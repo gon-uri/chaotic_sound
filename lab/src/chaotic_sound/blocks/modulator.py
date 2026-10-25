@@ -12,6 +12,8 @@ from chaotic_sound.blocks.base import Block, BlockParams, Port, Signal, SignalTy
 
 SHAPES = ("sine", "triangle", "square", "ramp_up", "ramp_down")
 MODES = ("loop", "once")
+MIN_PERIOD_S = 0.001
+"""Shortest allowed period (1 ms); shorter values make the phase arithmetic meaningless."""
 
 
 def shape_value(shape: str, phase: Signal) -> Signal:
@@ -52,19 +54,23 @@ class ModulatorParams(BlockParams):
     mode: str = "loop"
 
     def __post_init__(self) -> None:
+        self.check_types()
         if self.shape not in SHAPES:
             raise ValueError(f"unknown shape {self.shape!r}; choose one of {SHAPES}")
         if self.mode not in MODES:
             raise ValueError(f"unknown mode {self.mode!r}; choose one of {MODES}")
-        if not (math.isfinite(self.period_s) and self.period_s > 0):
-            raise ValueError(f"period_s must be a positive number of seconds, got {self.period_s}")
+        if not (math.isfinite(self.period_s) and self.period_s >= MIN_PERIOD_S):
+            raise ValueError(f"period_s must be at least {MIN_PERIOD_S} s, got {self.period_s}")
 
 
 class Modulator(Block):
     """Low-frequency oscillator or one-shot envelope with output in [0, 1].
 
     Its time origin is the start of the render (t = 0); the phase is computed from an
-    integer sample counter, so long renders do not accumulate rounding drift.
+    integer sample counter, so long renders do not accumulate rounding drift. The exact
+    float64 recipe is pinned by spec §4.1 so that every engine flips square and ramp edges
+    on the same samples: ``t = i / fs``, ``c = t / T``, ``φ = c − floor(c)`` (loop) or
+    ``φ = min(c, 1)`` (once).
     """
 
     type_name = "modulator"
@@ -82,5 +88,6 @@ class Modulator(Block):
         t = (self._n + np.arange(n, dtype=np.float64)) / self.sample_rate
         self._n += n
         cycles = t / self.params.period_s
-        phase = np.mod(cycles, 1.0) if self.params.mode == "loop" else np.minimum(cycles, 1.0)
+        loop = self.params.mode == "loop"
+        phase = cycles - np.floor(cycles) if loop else np.minimum(cycles, 1.0)
         return {"out": shape_value(self.params.shape, phase)}

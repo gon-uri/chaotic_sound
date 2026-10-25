@@ -5,7 +5,8 @@ engine. Per system it holds:
 
 - the modulated parameter's range ``[p_min, p_max]`` (the knob u ∈ [0, 1] maps onto it);
 - on a grid of u values: the system's characteristic period P(u) (system time), and for each
-  audible variable its mean μ(u) and standard deviation σ(u);
+  audible variable its mean μ(u), standard deviation σ(u) and robust peak π(u) (the 99.9th
+  percentile of |x − μ|);
 - the integration resolution ``h_max``, a safety bounding box and the initial condition.
 
 This module only reads, writes and interpolates catalogs; producing one is the job of
@@ -25,7 +26,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 CATALOG_FORMAT = "chaotic-sound-catalog"
-CATALOG_VERSION = 1
+CATALOG_VERSION = 2
 CATALOG_ENV_VAR = "CHAOTIC_SOUND_CATALOG"
 
 PeriodMethod = str
@@ -44,6 +45,9 @@ class ObservableTable:
     ----------
     mean, std
         Mean μ(u) and standard deviation σ(u) of the variable.
+    peak
+        Robust peak π(u): the 99.9th percentile of ``|x − μ|``. Used to keep spiky signals
+        (high crest factor) below the clipper (spec §4.2 step 6).
     prominence
         Fraction of the variable's power in its own spectral peak (informative: how pitched
         it sounds; e.g. Lorenz z ≈ 0.4 but Lorenz x ≈ 0.03).
@@ -51,6 +55,7 @@ class ObservableTable:
 
     mean: NDArray[np.float64]
     std: NDArray[np.float64]
+    peak: NDArray[np.float64]
     prominence: NDArray[np.float64]
 
     def to_dict(self) -> dict[str, Any]:
@@ -58,13 +63,19 @@ class ObservableTable:
         return {
             "mean": self.mean.tolist(),
             "std": self.std.tolist(),
+            "peak": self.peak.tolist(),
             "prominence": self.prominence.tolist(),
         }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ObservableTable:
         """Inverse of :meth:`to_dict`."""
-        return cls(mean=_arr(d["mean"]), std=_arr(d["std"]), prominence=_arr(d["prominence"]))
+        return cls(
+            mean=_arr(d["mean"]),
+            std=_arr(d["std"]),
+            peak=_arr(d["peak"]),
+            prominence=_arr(d["prominence"]),
+        )
 
 
 @dataclass(frozen=True)
@@ -76,6 +87,9 @@ class CatalogEntry:
     p_min: float
     p_max: float
     p_default: float
+    """Default parameter value (the knob's default position); may differ from dysts' value."""
+    p_reference: float
+    """The dysts parameter value the analysis started from (informative)."""
     u_grid: NDArray[np.float64]
     period_table: NDArray[np.float64]
     """Characteristic period P(u) of the system on ``u_grid`` (system time)."""
@@ -115,6 +129,37 @@ class CatalogEntry:
         """σ(u) of ``observable``."""
         return self._interp(u, self.observables[observable].std)
 
+    def peak(self, observable: str, u: ArrayLike) -> NDArray[np.float64]:
+        """π(u) of ``observable`` (99.9th percentile of |x − μ|)."""
+        return self._interp(u, self.observables[observable].peak)
+
+    def check_against(self, system: Any) -> None:
+        """Raise ``ValueError`` if this entry does not fit ``system`` (a ``SystemDef``)."""
+        problems = []
+        dim = len(system.variables)
+        for name, arr in (("bounds_lo", self.bounds_lo), ("bounds_hi", self.bounds_hi),
+                          ("initial_condition", self.initial_condition)):  # fmt: skip
+            if arr.shape != (dim,):
+                problems.append(f"{name} has shape {arr.shape}, expected ({dim},)")
+        if self.param != system.modulated_param:
+            problems.append(f"param {self.param!r} != {system.modulated_param!r}")
+        if set(self.observables) != set(system.audio_variables):
+            problems.append(f"observables {sorted(self.observables)} != {system.audio_variables}")
+        if self.default_observable not in self.observables:
+            problems.append(f"default observable {self.default_observable!r} has no table")
+        g = self.u_grid
+        if g.size < 2 or g[0] != 0.0 or g[-1] != 1.0 or np.any(np.diff(g) <= 0):
+            problems.append("u_grid must increase strictly from 0 to 1")
+        tables = [self.period_table] + [
+            a for t in self.observables.values() for a in (t.mean, t.std, t.peak, t.prominence)
+        ]
+        if any(t.shape != g.shape for t in tables):
+            problems.append("a table does not match u_grid")
+        if not (self.p_min < self.p_max and self.p_min <= self.p_default <= self.p_max):
+            problems.append("p_min < p_max and p_min ≤ p_default ≤ p_max are required")
+        if problems:
+            raise ValueError(f"catalog entry {self.name!r}: " + "; ".join(problems))
+
     def to_dict(self) -> dict[str, Any]:
         """JSON-ready representation."""
         return {
@@ -122,6 +167,7 @@ class CatalogEntry:
             "p_min": self.p_min,
             "p_max": self.p_max,
             "p_default": self.p_default,
+            "p_reference": self.p_reference,
             "u_default": self.u_default,
             "u_grid": self.u_grid.tolist(),
             "period": self.period_table.tolist(),
@@ -145,6 +191,7 @@ class CatalogEntry:
             p_min=float(d["p_min"]),
             p_max=float(d["p_max"]),
             p_default=float(d["p_default"]),
+            p_reference=float(d["p_reference"]),
             u_grid=_arr(d["u_grid"]),
             period_table=_arr(d["period"]),
             period_method=str(d["period_method"]),
@@ -200,12 +247,13 @@ class Catalog:
 
     def save(self, path: str | Path) -> None:
         """Write the catalog as indented JSON."""
-        Path(path).write_text(json.dumps(self.to_dict(), indent=1, ensure_ascii=False) + "\n")
+        text = json.dumps(self.to_dict(), indent=1, ensure_ascii=False) + "\n"
+        Path(path).write_text(text, encoding="utf-8")
 
     @classmethod
     def load(cls, path: str | Path) -> Catalog:
         """Read a catalog JSON file."""
-        return cls.from_dict(json.loads(Path(path).read_text()))
+        return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
 def default_catalog_path() -> Path:

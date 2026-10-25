@@ -18,12 +18,11 @@
         "system": "rossler",
         "note": "A2",
         "cents": 0.0,
-        "observable": null,
-        "observable_right": null,
+        "pitch_min": "A1",
+        "pitch_max": "A5",
         "pitch_lock": true,
-        "seed": null,
-        "param": null,
-        "amp": 0.8
+        "amp_curve": "perceptual",
+        "amp": 0.9
       }
     },
     {
@@ -33,12 +32,11 @@
         "system": "chua",
         "note": "E3",
         "cents": 0.0,
-        "observable": null,
-        "observable_right": null,
+        "pitch_min": "A1",
+        "pitch_max": "A5",
         "pitch_lock": true,
-        "seed": null,
-        "param": null,
-        "amp": 0.6
+        "amp_curve": "perceptual",
+        "amp": 0.8
       }
     },
     {
@@ -48,12 +46,25 @@
         "system": "lorenz",
         "note": "A3",
         "cents": 0.0,
-        "observable": null,
-        "observable_right": null,
+        "pitch_min": "A1",
+        "pitch_max": "A5",
         "pitch_lock": true,
-        "seed": null,
-        "param": null,
-        "amp": 0.6
+        "amp_curve": "perceptual",
+        "amp": 0.8
+      }
+    },
+    {
+      "id": "rikitake",
+      "type": "dynamical",
+      "params": {
+        "system": "rikitake",
+        "note": "C#4",
+        "cents": 0.0,
+        "pitch_min": "A1",
+        "pitch_max": "A5",
+        "pitch_lock": true,
+        "amp_curve": "perceptual",
+        "amp": 0.7
       }
     },
     {
@@ -61,21 +72,20 @@
       "type": "dynamical",
       "params": {
         "system": "duffing",
-        "note": "C#4",
+        "note": "E4",
         "cents": 0.0,
-        "observable": null,
-        "observable_right": null,
+        "pitch_min": "A1",
+        "pitch_max": "A5",
         "pitch_lock": true,
-        "seed": null,
-        "param": null,
-        "amp": 0.5
+        "amp_curve": "perceptual",
+        "amp": 0.7
       }
     },
     {
       "id": "mix",
       "type": "sum",
       "params": {
-        "gain": 0.7
+        "gain": 0.6
       }
     },
     {
@@ -101,6 +111,10 @@
     },
     {
       "from": "lorenz.out",
+      "to": "mix.in"
+    },
+    {
+      "from": "rikitake.out",
       "to": "mix.in"
     },
     {

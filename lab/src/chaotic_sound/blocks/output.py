@@ -18,6 +18,7 @@ class OutputParams(BlockParams):
     volume: float = 0.8
 
     def __post_init__(self) -> None:
+        self.check_types()
         _check_unit("volume", self.volume)
 
 
@@ -25,12 +26,13 @@ class Output(Block):
     """The patch's sink: ``main = softclip(volume · in)``.
 
     It has no output port (nothing can be cabled from it); the patch reads its ``"main"``
-    signal as the rendered audio.
+    signal as the rendered audio. With nothing connected it outputs silence (a valid patch).
     """
 
     type_name = "output"
     Params = OutputParams
-    INPUTS = (Port("in", SignalType.AUDIO, multi=False),)
+    INPUTS = (Port("in", SignalType.AUDIO),)
+    IS_SINK = True
     params: OutputParams
 
     def reset(self, sample_rate: float) -> None:

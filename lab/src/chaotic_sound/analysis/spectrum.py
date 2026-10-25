@@ -86,11 +86,19 @@ def spectral_peak(
     k = int(idx[np.argmax(psd[idx])])
     df = freqs[1] - freqs[0]
     f_peak = float(freqs[k])
-    if 0 < k < len(psd) - 1 and np.all(psd[k - 1 : k + 2] > 0):
+    # Parabolic interpolation of the log-PSD, only at a genuine local maximum whose left
+    # neighbour is a valid bin; the offset is clamped to ±½ bin.
+    if (
+        0 < k < len(psd) - 1
+        and valid[k - 1]
+        and psd[k] >= psd[k - 1]
+        and psd[k] >= psd[k + 1]
+        and np.all(psd[k - 1 : k + 2] > 0)
+    ):
         a, b, c = np.log(psd[k - 1 : k + 2])
         denom = a - 2.0 * b + c
         if denom < 0:  # proper maximum of the parabola
-            f_peak += 0.5 * (a - c) / denom * df
+            f_peak += float(np.clip(0.5 * (a - c) / denom, -0.5, 0.5)) * df
     band = valid & (np.abs(freqs - f_peak) <= PROMINENCE_BANDWIDTH * f_peak)
     total = float(np.sum(psd[valid]))
     prominence = float(np.sum(psd[band]) / total) if total > 0 else 0.0
@@ -133,3 +141,26 @@ def mean_return_time(signal: NDArray[np.float64], sample_spacing: float) -> Retu
     t = (k + delta) * sample_spacing
     gaps = np.diff(t)
     return ReturnTimes(mean=float(gaps.mean()), std=float(gaps.std()), count=int(k.size))
+
+
+def measure_pitch(
+    audio: NDArray[np.float64], sample_rate: float, method: str, nominal_hz: float
+) -> float:
+    """Frequency (Hz) of rendered audio, measured the way the catalog defines P.
+
+    ``method`` is the catalog entry's ``period_method``:
+
+    - ``"drive"``: the interpolated spectral maximum (the drive line is sharp, and the
+      centroid would be biased by the broadband power next to it);
+    - ``"peak_centroid"``: the peak centroid;
+    - ``"return_time"``: the mean return time between maxima.
+
+    ``nominal_hz`` (the expected pitch) sets the low-frequency cut-off at a quarter of it.
+    Use at least ~2000 cycles of audio for a few-cent accuracy.
+    """
+    x = np.asarray(audio, dtype=np.float64)
+    if method == "return_time":
+        return 1.0 / mean_return_time(x, 1.0 / sample_rate).mean
+    nperseg = min(2**17, 1 << int(np.log2(max(len(x) // 4, 256))))
+    peak = spectral_peak(x, 1.0 / sample_rate, nperseg=nperseg, f_min=0.25 * nominal_hz)
+    return peak.frequency if method == "drive" else peak.centroid_frequency

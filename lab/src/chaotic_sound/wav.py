@@ -43,4 +43,8 @@ def read_wav(path: str | Path) -> tuple[NDArray[np.float64], int]:
         return data.astype(np.float64) / 32767.0, int(rate)
     if data.dtype == np.int32:
         return data.astype(np.float64) / 2147483647.0, int(rate)
-    return data.astype(np.float64), int(rate)
+    if data.dtype == np.uint8:
+        return (data.astype(np.float64) - 128.0) / 128.0, int(rate)
+    if np.issubdtype(data.dtype, np.floating):
+        return data.astype(np.float64), int(rate)
+    raise ValueError(f"unsupported WAV sample type {data.dtype}")

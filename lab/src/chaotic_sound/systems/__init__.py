@@ -8,10 +8,12 @@ from chaotic_sound.systems.base import SystemDef
 from chaotic_sound.systems.chua import CHUA
 from chaotic_sound.systems.duffing import DUFFING
 from chaotic_sound.systems.lorenz import LORENZ
+from chaotic_sound.systems.rikitake import RIKITAKE
 from chaotic_sound.systems.rossler import ROSSLER
-from chaotic_sound.systems.thomas import THOMAS
 
-_ALL: tuple[SystemDef, ...] = (LORENZ, ROSSLER, CHUA, THOMAS, DUFFING)
+_ALL: tuple[SystemDef, ...] = (LORENZ, ROSSLER, CHUA, RIKITAKE, DUFFING)
+"""Systems of the v1 catalog. Thomas was replaced by Rikitake (ADR 0012); its module is kept
+in the git history (commit c0cc275)."""
 SYSTEMS: dict[str, SystemDef] = {s.name: s for s in _ALL}
 
 

@@ -29,6 +29,9 @@ from numpy.typing import NDArray
 from chaotic_sound.systems.base import SystemDef
 
 TWO_PI = 2.0 * math.pi
+MAX_SUBSTEPS = 4096
+"""Upper bound on RK4 sub-steps per sample (spec §4.2 step 5); a cost guard, never reached
+for valid notes (about 23 at C8)."""
 
 
 @njit
@@ -100,8 +103,9 @@ def render_tuned(  # type: ignore[no-untyped-def]
     """Audio-rate integration with a per-sample parameter and time step (spec §4.2 steps 5–8).
 
     For each output sample ``i``: set ``p[mod_index] = p_values[i]``, advance the state by
-    ``dtau[i]`` system-time units using ``n = ceil(dtau[i] / h_max)`` equal RK4 sub-steps, wrap
-    phase variables, run the safety check, and record the state.
+    ``dtau[i]`` system-time units using ``n = clamp(ceil(dtau[i] / h_max), 1, MAX_SUBSTEPS)``
+    equal RK4 sub-steps, wrap phase variables, run the safety check, and record the state.
+    A non-finite or negative ``dtau[i]`` triggers a safety reset.
 
     Parameters
     ----------
@@ -142,14 +146,17 @@ def render_tuned(  # type: ignore[no-untyped-def]
     for i in range(p_values.shape[0]):
         p[mod_index] = p_values[i]
         d = dtau[i]
-        n_sub = math.ceil(d / h_max)
-        if n_sub < 1:
+        ok = math.isfinite(d) and d >= 0.0
+        if ok:
+            # n_sub = clamp(ceil(dtau / h_max), 1, MAX_SUBSTEPS); with dtau = 0 the state holds.
             n_sub = 1
-        h = d / n_sub
-        for _ in range(n_sub):
-            rk4_step(rhs, x, p, h, k1, k2, k3, k4, tmp)
-        wrap_phases(x, wrap)
-        ok = True
+            q = d / h_max
+            if q > 1.0:
+                n_sub = MAX_SUBSTEPS if q >= MAX_SUBSTEPS else math.ceil(q)
+            h = d / n_sub
+            for _ in range(n_sub):
+                rk4_step(rhs, x, p, h, k1, k2, k3, k4, tmp)
+            wrap_phases(x, wrap)
         for j in range(dim):
             v = x[j]
             if not math.isfinite(v) or v < lo[j] or v > hi[j]:

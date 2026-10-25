@@ -5,8 +5,10 @@ the motion is bounded and stationary, its largest Lyapunov exponent, and per var
 standard deviation, extremes, spectral-peak period, prominence and return time.
 
 Sweeps use **continuation**: the end state at one value seeds the next, moving outward from
-the default value. This tracks the attractor branch that a slowly modulated box actually
-follows (spec §4.2, ADR 0006).
+a start value. This tracks the attractor branch that a slowly modulated box actually
+follows (spec §4.2, ADR 0006). :func:`hysteresis` sweeps up and down to find stretches where
+the branch depends on the direction of travel (multistability), and
+:func:`select_playable_range` picks the knob range (ADR 0012).
 
 Time units: everything is in system time; the reference period P_ref sets the step size and
 the analysis windows so that all systems are treated alike.
@@ -91,11 +93,17 @@ class VariableStats:
     prominence: float
     return_time: float
     drift: float
+    peak: float = math.nan
+    """Robust peak: 99.9th percentile of ``|x − mean|`` (for the level normalization)."""
 
 
 @dataclass(frozen=True)
 class PointResult:
-    """Analysis of the system at one parameter value."""
+    """Analysis of the system at one parameter value.
+
+    ``stationary`` checks *every* audible variable; range selection uses the drift of the
+    tuning variable only (see :func:`select_playable_range`).
+    """
 
     value: float
     bounded: bool
@@ -106,13 +114,8 @@ class PointResult:
     x_end: NDArray[np.float64] = field(default_factory=lambda: np.empty(0), repr=False)
 
     def is_chaotic(self, period: float, threshold: float) -> bool:
-        """Bounded, stationary and with λ·P above ``threshold`` (nats per period)."""
-        return (
-            self.bounded
-            and self.stationary
-            and math.isfinite(self.lyapunov)
-            and self.lyapunov * period > threshold
-        )
+        """Bounded with λ·P above ``threshold`` (nats per period ``period``)."""
+        return self.bounded and math.isfinite(self.lyapunov) and self.lyapunov * period > threshold
 
 
 def _measure(
@@ -147,23 +150,19 @@ def _measure(
     half = n_record // 2
     for name, i in zip(system.audio_variables, audio_idx, strict=True):
         s = record[:, i]
+        mean = float(s.mean())
         std = float(s.std())
         drift = float(abs(s[:half].mean() - s[half:].mean()) / std) if std > 0 else math.inf
         stationary &= drift <= settings.drift_threshold
         if std > 0:
-            peak = spectral_peak(s, dt, nperseg=nperseg, f_min=f_min)
-            peak_period, prominence = peak.period, peak.prominence
-            centroid_period = peak.centroid_period
+            pk = spectral_peak(s, dt, nperseg=nperseg, f_min=f_min)
+            peak_period, centroid_period, prominence = pk.period, pk.centroid_period, pk.prominence
             return_time = mean_return_time(s, dt).mean
         else:  # a fixed point: no oscillation at all
-            peak_period, centroid_period, prominence, return_time = (
-                math.nan,
-                math.nan,
-                0.0,
-                math.nan,
-            )
+            peak_period = centroid_period = return_time = math.nan
+            prominence = 0.0
         stats[name] = VariableStats(
-            mean=float(s.mean()),
+            mean=mean,
             std=std,
             minimum=float(s.min()),
             maximum=float(s.max()),
@@ -172,6 +171,7 @@ def _measure(
             prominence=prominence,
             return_time=return_time,
             drift=drift,
+            peak=float(np.percentile(np.abs(s - mean), 99.9)),
         )
     lyap = max_lyapunov(
         system,
@@ -193,7 +193,7 @@ def _measure(
 
 
 def reference_scale(system: SystemDef, settings: AnalysisSettings) -> ReferenceScale:
-    """Measure P_ref and the default-parameter statistics of ``system``.
+    """Measure P_ref and the statistics of ``system`` at its dysts (reference) parameters.
 
     A first pass uses dysts' ``period_hint`` for step sizes; P_ref is then the drive period
     (forced systems) or the shortest characteristic time among audible variables.
@@ -216,7 +216,7 @@ def reference_scale(system: SystemDef, settings: AnalysisSettings) -> ReferenceS
         for v in first.variables.values()
     )
     period = drive if drive is not None else shortest
-    mean = system.initial_state() * 0.0
+    mean = np.zeros(system.dim)
     std = np.ones(system.dim)
     for name, v in first.variables.items():
         i = system.variable_index(name)
@@ -247,49 +247,117 @@ def analyze_point(
     return _measure(system, value, start, settings, reference.period, escape)
 
 
+def continuation(
+    system: SystemDef,
+    values: Sequence[float] | NDArray[np.float64],
+    reference: ReferenceScale,
+    settings: AnalysisSettings,
+    x0: NDArray[np.float64],
+) -> list[PointResult]:
+    """Analyze ``values`` in the given order, seeding each point with the previous end state.
+
+    After an unbounded point the walk restarts from ``x0``.
+    """
+    results = []
+    state = x0
+    for value in values:
+        res = analyze_point(system, float(value), reference, settings, state)
+        results.append(res)
+        state = res.x_end.copy() if res.bounded else x0
+    return results
+
+
 def sweep(
     system: SystemDef,
     values: Sequence[float] | NDArray[np.float64],
     reference: ReferenceScale,
     settings: AnalysisSettings,
-    progress: Callable[[int, int], None] | None = None,
+    *,
+    start_value: float | None = None,
+    start_state: NDArray[np.float64] | None = None,
 ) -> list[PointResult]:
-    """Analyze every value in ``values`` (sorted ascending) with continuation from the default.
+    """Analyze ``values`` (strictly increasing) by continuation outward from a start value.
 
-    The walk starts at the value closest to the system default (from the system's initial
-    condition) and moves up, then down, seeding each point with its neighbor's end state.
-    After an unbounded point the walk restarts from the initial condition.
+    The walk starts at the value closest to ``start_value`` (default: the system's dysts
+    value) from ``start_state`` (default: the system's initial condition), moves up, then
+    down from the start again. Results are returned in the order of ``values``.
     """
     vals = np.asarray(values, dtype=np.float64)
     if np.any(np.diff(vals) <= 0):
         raise ValueError("values must be strictly increasing")
-    start = int(np.argmin(np.abs(vals - system.default_value)))
-    results: list[PointResult | None] = [None] * len(vals)
-    done = 0
-    for order in (range(start, len(vals)), range(start - 1, -1, -1)):
-        x0 = system.initial_state() if order.start == start else _seed(results[start], system)
-        for i in order:
-            res = analyze_point(system, float(vals[i]), reference, settings, x0)
-            results[i] = res
-            x0 = _seed(res, system)
-            done += 1
-            if progress is not None:
-                progress(done, len(vals))
-    return [r for r in results if r is not None]
+    center = system.default_value if start_value is None else start_value
+    x0 = system.initial_state() if start_state is None else np.array(start_state)
+    i0 = int(np.argmin(np.abs(vals - center)))
+    up = continuation(system, vals[i0:], reference, settings, x0)
+    seed = up[0].x_end.copy() if up[0].bounded else x0
+    down = continuation(system, vals[:i0][::-1], reference, settings, seed)
+    return down[::-1] + up
 
 
-def _seed(result: PointResult | None, system: SystemDef) -> NDArray[np.float64]:
-    if result is None or not result.bounded:
-        return system.initial_state()
-    return result.x_end.copy()
+def hysteresis(
+    system: SystemDef,
+    values: NDArray[np.float64],
+    reference: ReferenceScale,
+    settings: AnalysisSettings,
+    x_lo: NDArray[np.float64],
+    x_hi: NDArray[np.float64],
+    observable: str,
+    period_of: Callable[[PointResult], float],
+    *,
+    std_tolerance: float = 0.10,
+    period_tolerance: float = 0.03,
+) -> list[bool]:
+    """Sweep ``values`` up from ``x_lo`` and down from ``x_hi``; flag direction-dependent points.
+
+    A slowly modulated box travels the knob range in both directions. Where the up and down
+    sweeps land on different attractors (σ of the tuning variable differs by more than
+    ``std_tolerance`` or its period by more than ``period_tolerance``, relative), pitch and
+    level tables would depend on the history, so those points are flagged.
+
+    Returns one flag per value: ``True`` = consistent in both directions.
+    """
+    vals = np.asarray(values, dtype=np.float64)
+    up = continuation(system, vals, reference, settings, x_lo)
+    down = continuation(system, vals[::-1], reference, settings, x_hi)[::-1]
+    flags = []
+    for a, b in zip(up, down, strict=True):
+        if not (a.bounded and b.bounded):
+            flags.append(False)
+            continue
+        sa, sb = a.variables[observable].std, b.variables[observable].std
+        pa, pb = period_of(a), period_of(b)
+        ok = (
+            sa > 0
+            and abs(sb / sa - 1.0) <= std_tolerance
+            and math.isfinite(pa)
+            and math.isfinite(pb)
+            and abs(pb / pa - 1.0) <= period_tolerance
+        )
+        flags.append(ok)
+    return flags
+
+
+@dataclass(frozen=True)
+class RangeCriteria:
+    """What makes a knob range playable (ADR 0012). Widths are in parameter units."""
+
+    lyapunov_threshold: float = 0.05
+    """λ·P_ref (nats per period) above which a point counts as chaotic."""
+    drift_threshold: float = 0.2
+    max_period_jump: float = 0.15
+    min_prominence: float = 0.15
+    """Musicality: the tuning variable's spectral prominence at every point (0 disables)."""
+    min_chaotic_fraction: float = 0.6
+    escape_margin: float = 0.0
+    min_points: int = 5
 
 
 @dataclass(frozen=True)
 class RangeSelection:
-    """Chaotic interval of the modulated parameter chosen from a sweep.
+    """Knob range chosen from a sweep.
 
-    ``lo_reason`` / ``hi_reason`` explain why each end stopped; ``windows`` lists the narrow
-    periodic windows ``(start, end)`` that were accepted inside the interval.
+    ``lo_reason`` / ``hi_reason`` explain why each end stopped; ``windows`` lists the
+    periodic (non-chaotic) stretches ``(start, end)`` inside the range.
     """
 
     lo: float
@@ -297,110 +365,145 @@ class RangeSelection:
     lo_reason: str
     hi_reason: str
     windows: tuple[tuple[float, float], ...] = ()
+    chaotic_fraction: float = 1.0
 
 
-def select_chaotic_range(
+def select_playable_range(
     results: Sequence[PointResult],
-    default_value: float,
+    reference_value: float,
     period_ref: float,
     period_of: Callable[[PointResult], float],
     drift_of: Callable[[PointResult], float],
-    *,
-    drift_threshold: float = 0.2,
-    lyapunov_threshold: float = 0.05,
-    max_period_jump: float = 0.15,
-    max_window_width: float = 0.0,
-    escape_margin: float = 0.0,
+    prominence_of: Callable[[PointResult], float],
+    criteria: RangeCriteria,
+    extra_unsafe: Callable[[PointResult], str | None] | None = None,
 ) -> RangeSelection:
-    """Largest interval around the default value that is safe and (essentially) chaotic.
+    """Pick the knob range: stable and musical first, chaos present (ADR 0012).
 
-    Walking outward from the default, the interval keeps growing while points are bounded,
-    stationary (``drift_of(point) ≤ drift_threshold``) and chaotic
-    (λ·P_ref > ``lyapunov_threshold``). It stops:
-
-    - at a point that is unbounded or non-stationary; the end is then pulled back so it lies
-      at least ``escape_margin`` (parameter units) away from that point, because a slowly
-      modulated trajectory near a crisis can still escape;
-    - where ``period_of`` jumps by more than ``max_period_jump`` (relative) between
-      neighbors, because pitch lock would glitch there;
-    - at a periodic window (bounded, stationary, not chaotic) wider than
-      ``max_window_width``. Narrower windows are accepted and reported: chaotic bands of
-      many systems (e.g. Rössler) are riddled with them, and inside a window the sound is
-      simply periodic.
-
-    Both ends are always chaotic points.
-
-    Parameters
-    ----------
-    results
-        Sweep results sorted by parameter value.
-    default_value
-        The system's default parameter value (must be chaotic).
-    period_ref
-        P_ref, used to express the Lyapunov exponent per period.
-    period_of
-        Characteristic period of the system at a point (method-dependent).
-    drift_of
-        Drift statistic of the tuning observable at a point. Only that observable is checked:
-        variables such as Lorenz's x switch lobes slowly and look "drifty" over finite
-        records without being non-stationary in any way that matters for the sound.
+    1. A point is **unsafe** if it is unbounded, drifts, has no defined period, is not
+       pitched enough (prominence below ``min_prominence``), or ``extra_unsafe`` says so
+       (e.g. hysteresis). Points within ``escape_margin`` of an unbounded or drifting value
+       are unsafe too.
+    2. Between neighbors where the period jumps by more than ``max_period_jump`` the range
+       is cut (pitch lock would glitch).
+    3. Each remaining run of safe points is trimmed so that both ends are chaotic; it
+       qualifies if at least ``min_chaotic_fraction`` of its points are chaotic and it has
+       ``min_points`` points. Periodic windows of any width may lie inside.
+    4. The run containing ``reference_value`` wins; otherwise the widest one.
     """
     vals = np.array([r.value for r in results])
+    n = len(results)
+    chaotic = [r.is_chaotic(period_ref, criteria.lyapunov_threshold) for r in results]
 
-    def stationary(r: PointResult) -> bool:
-        return r.bounded and drift_of(r) <= drift_threshold
+    reason: list[str | None] = []
+    for r in results:
+        if not r.bounded:
+            reason.append("unbounded")
+        elif drift_of(r) > criteria.drift_threshold:
+            reason.append("drifting (non-stationary)")
+        elif not math.isfinite(period_of(r)):
+            reason.append("no defined period")
+        elif prominence_of(r) < criteria.min_prominence:
+            reason.append(f"not pitched (prominence {prominence_of(r):.2f})")
+        elif extra_unsafe is not None and (extra := extra_unsafe(r)) is not None:
+            reason.append(extra)
+        else:
+            reason.append(None)
+    hard = [i for i, x in enumerate(reason) if x in ("unbounded", "drifting (non-stationary)")]
+    for i in range(n):
+        if reason[i] is None:
+            near = [k for k in hard if abs(vals[k] - vals[i]) < criteria.escape_margin]
+            if near:
+                reason[i] = (
+                    f"within the safety margin of the {reason[near[0]]} value {vals[near[0]]:.6g}"
+                )
 
-    ok = [
-        stationary(r) and math.isfinite(r.lyapunov) and r.lyapunov * period_ref > lyapunov_threshold
-        for r in results
-    ]
-    start = int(np.argmin(np.abs(vals - default_value)))
-    if not ok[start]:
-        raise RuntimeError(f"default value {default_value} is not chaotic by the criteria")
+    def boundary(i: int, j: int) -> str | None:
+        """Why the step from i to its neighbor j may not be crossed (None = it may)."""
+        if reason[j] is not None:
+            return f"{reason[j]} at {vals[j]:.6g}"
+        jump = abs(period_of(results[j]) / period_of(results[i]) - 1.0)
+        if jump > criteria.max_period_jump:
+            return f"period jump of {100 * jump:.0f}% at {vals[j]:.6g}"
+        return None
 
-    def walk(step: int) -> tuple[int, str, list[tuple[float, float]]]:
-        last_ok = start
-        windows: list[tuple[float, float]] = []
-        window_start: int | None = None
-        i = start
-        while True:
-            j = i + step
-            if j < 0 or j >= len(results):
-                return last_ok, "end of candidate range", windows
-            r = results[j]
-            if not stationary(r):
-                kind = "unbounded" if not r.bounded else "non-stationary (drift)"
-                # Pull back from the unsafe point by at least escape_margin.
-                k = last_ok
-                while k != start and abs(vals[k] - r.value) < escape_margin:
-                    k -= step
-                    while k != start and not ok[k]:
-                        k -= step
-                windows = [w for w in windows if min(w) * step <= vals[k] * step]
-                return k, f"{kind} at {r.value:.6g}", windows
-            jump = abs(period_of(r) / period_of(results[i]) - 1.0)
-            if not np.isfinite(jump) or jump > max_period_jump:
-                return last_ok, f"period jump of {100 * jump:.0f}% at {r.value:.6g}", windows
-            if ok[j]:
-                if window_start is not None:
-                    windows.append((float(vals[window_start]), float(vals[j - step])))
-                    window_start = None
-                last_ok = j
-            else:
-                if window_start is None:
-                    window_start = j
-                if abs(r.value - vals[last_ok]) > max_window_width:
-                    lam = r.lyapunov * period_ref
-                    return last_ok, f"periodic window (λ·P={lam:.3f}) at {r.value:.6g}", windows
-            i = j
+    runs: list[tuple[int, int, str, str]] = []
+    i = 0
+    while i < n:
+        if reason[i] is not None:
+            i += 1
+            continue
+        start = i
+        lo_why = "end of candidate range" if start == 0 else (boundary(start, start - 1) or "")
+        while i + 1 < n and boundary(i, i + 1) is None:
+            i += 1
+        hi_why = "end of candidate range" if i == n - 1 else (boundary(i, i + 1) or "")
+        runs.append((start, i, lo_why, hi_why))
+        i += 1
 
-    i_hi, hi_reason, w_hi = walk(+1)
-    i_lo, lo_reason, w_lo = walk(-1)
-    windows = tuple(sorted((min(w), max(w)) for w in w_lo + w_hi))
+    candidates = []
+    for a, b, lo_why, hi_why in runs:
+        idx = [k for k in range(a, b + 1) if chaotic[k]]
+        if not idx:
+            continue
+        lo_i, hi_i = idx[0], idx[-1]
+        count = hi_i - lo_i + 1
+        frac = sum(chaotic[lo_i : hi_i + 1]) / count
+        if count < criteria.min_points or frac < criteria.min_chaotic_fraction:
+            continue
+        lo_r = lo_why if lo_i == a else f"periodic below (trimmed to chaotic end; {lo_why})"
+        hi_r = hi_why if hi_i == b else f"periodic above (trimmed to chaotic end; {hi_why})"
+        candidates.append((lo_i, hi_i, lo_r, hi_r, frac))
+    if not candidates:
+        raise RuntimeError("no playable range: no run of safe points is chaotic enough")
+
+    def contains_ref(c: tuple[int, int, str, str, float]) -> bool:
+        return bool(vals[c[0]] <= reference_value <= vals[c[1]])
+
+    with_ref = [c for c in candidates if contains_ref(c)]
+    best = with_ref[0] if with_ref else max(candidates, key=lambda c: vals[c[1]] - vals[c[0]])
+    lo_i, hi_i, lo_r, hi_r, frac = best
+
+    windows: list[tuple[float, float]] = []
+    k = lo_i
+    while k <= hi_i:
+        if not chaotic[k]:
+            w0 = k
+            while k + 1 <= hi_i and not chaotic[k + 1]:
+                k += 1
+            windows.append((float(vals[w0]), float(vals[k])))
+        k += 1
     return RangeSelection(
-        lo=float(vals[i_lo]),
-        hi=float(vals[i_hi]),
-        lo_reason=lo_reason,
-        hi_reason=hi_reason,
-        windows=windows,
+        lo=float(vals[lo_i]),
+        hi=float(vals[hi_i]),
+        lo_reason=lo_r,
+        hi_reason=hi_r,
+        windows=tuple(windows),
+        chaotic_fraction=float(frac),
     )
+
+
+def choose_default(
+    results: Sequence[PointResult],
+    selection: RangeSelection,
+    period_ref: float,
+    lyapunov_threshold: float,
+    neighborhood: int = 2,
+) -> int:
+    """Index of the default parameter: the chaotic point nearest the middle of the range.
+
+    The point and its ``neighborhood`` neighbors on each side must be chaotic, so the
+    default never sits at the edge of a periodic window. Falls back to any chaotic point.
+    """
+    vals = np.array([r.value for r in results])
+    inside = [i for i, v in enumerate(vals) if selection.lo <= v <= selection.hi]
+    chaotic = {i for i in inside if results[i].is_chaotic(period_ref, lyapunov_threshold)}
+    good = [
+        i for i in chaotic
+        if all(k in chaotic for k in range(i - neighborhood, i + neighborhood + 1))
+    ]  # fmt: skip
+    pool = good or sorted(chaotic)
+    if not pool:
+        raise RuntimeError("the selected range has no chaotic point")
+    middle = 0.5 * (selection.lo + selection.hi)
+    return min(pool, key=lambda i: abs(vals[i] - middle))

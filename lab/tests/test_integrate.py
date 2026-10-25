@@ -130,7 +130,34 @@ def test_render_tuned_resets_when_leaving_bounds() -> None:
     n = 200
     out, resets, _ = _render(lorenz, np.full(n, 0.01), np.full(n, 28.0), 0.005, lo=-5, hi=5)
     assert resets > 0
-    assert np.all(np.abs(out) <= max(5.0, np.max(np.abs(lorenz.initial_state()))))
+    x_reset = lorenz.initial_state()
+    reset_rows = np.all(out == x_reset, axis=1)
+    assert reset_rows.sum() == resets  # every reset row is exactly the reset state
+    others = out[~reset_rows]
+    assert np.all((others >= -5) & (others <= 5))
+
+
+def test_render_tuned_resets_on_bad_time_steps_and_caps_substeps() -> None:
+    rossler = get_system("rossler")
+    dtau = np.array([0.02, np.nan, np.inf, -1.0, 0.02])
+    out, resets, _ = _render(rossler, dtau, np.full(5, 5.7), 0.01)
+    assert resets == 3
+    np.testing.assert_array_equal(out[1], rossler.initial_state())
+    # A huge step is clamped to MAX_SUBSTEPS (it must return quickly, not hang).
+    _, resets, _ = _render(rossler, np.array([1e9]), np.array([5.7]), 1e-6, lo=-1e300, hi=1e300)
+    assert resets in (0, 1)
+
+
+def test_reset_count_is_chunk_independent() -> None:
+    lorenz = get_system("lorenz")
+    n = 400
+    dtau = np.full(n, 0.01)
+    p_values = np.full(n, 28.0)
+    _, whole, _ = _render(lorenz, dtau, p_values, 0.005, lo=-5, hi=5)
+    x = lorenz.initial_state()
+    _, a, x = _render(lorenz, dtau[:150], p_values[:150], 0.005, x=x, lo=-5, hi=5)
+    _, b, _ = _render(lorenz, dtau[150:], p_values[150:], 0.005, x=x, lo=-5, hi=5)
+    assert whole == a + b
 
 
 def test_phase_variable_is_wrapped() -> None:

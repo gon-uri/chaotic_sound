@@ -30,7 +30,7 @@ build-backend = "uv_build"
 [tool.ruff]
 line-length = 100
 # Agent-written study scripts: kept for reproducibility, not held to package lint rules.
-extend-exclude = ["scripts/studies"]
+extend-exclude = ["scripts/studies", "notebooks"]
 target-version = "py312"
 
 [tool.ruff.lint]

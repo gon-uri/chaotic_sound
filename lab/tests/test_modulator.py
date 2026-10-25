@@ -70,3 +70,30 @@ def test_starts_at_t0() -> None:
 def test_invalid_params(params: dict) -> None:
     with pytest.raises(ValueError):
         Modulator("m", **params)
+
+
+def test_phase_formula_is_pinned_at_cycle_edges() -> None:
+    """Spec §4.1: t = i/fs, c = t/T, φ = c − floor(c), all in float64."""
+    fs, period = 48_000.0, 0.1
+    mod = Modulator("m", shape="square", period_s=period)
+    mod.reset(fs)
+    y = mod.process(30_000, {})["out"]
+    i = np.arange(30_000)
+    c = (i / fs) / period
+    expected = np.where(c - np.floor(c) < 0.5, 1.0, 0.0)
+    np.testing.assert_array_equal(y, expected)
+    # With a binary-exact period the edges are exact: sample 500 is t = T/2 at fs = 1000.
+    mod = Modulator("m", shape="square", period_s=1.0)
+    mod.reset(1000.0)
+    y = mod.process(2001, {})["out"]
+    assert y[499] == 1.0 and y[500] == 0.0 and y[1000] == 1.0 and y[2000] == 1.0
+
+
+def test_minimum_period_and_types() -> None:
+    with pytest.raises(ValueError):
+        Modulator("m", period_s=1e-4)
+    with pytest.raises(ValueError):
+        Modulator("m", period_s="4")
+    with pytest.raises(ValueError):
+        Modulator("m", shape=1)
+    assert Modulator("m", period_s=8).params.period_s == 8  # an int is a valid number

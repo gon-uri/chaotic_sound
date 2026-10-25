@@ -22,16 +22,17 @@ from chaotic_sound.pitch import (
         ("B♭3", 58),
         ("Bb2", 46),
         ("C-1", 0),
-        ("G9", 127),
         ("E#4", 65),
-        ("Cbb4", 58),
+        ("G9", 127),
     ],
 )
 def test_note_to_midi(note: str, midi: int) -> None:
     assert note_to_midi(note) == midi
 
 
-@pytest.mark.parametrize("bad", ["H4", "A", "4", "A#b#4", "", "A4.5"])
+@pytest.mark.parametrize(
+    "bad", ["H4", "A", "4", "A#b#4", "", "A4.5", "Cbb4", " A4", "A10", "A-2", "A 4"]
+)
 def test_note_to_midi_rejects_garbage(bad: str) -> None:
     with pytest.raises(ValueError):
         note_to_midi(bad)
