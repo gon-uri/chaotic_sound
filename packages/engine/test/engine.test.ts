@@ -178,7 +178,7 @@ describe("live parameter changes", () => {
     // A restart would replay the edited patch from t = 0, fading in from silence.
     const restart = render(live.patch!, 4800).left;
     const diff = l3.reduce((m, v, i) => Math.max(m, Math.abs(v - restart[i]!)), 0);
-    expect(diff).toBeGreaterThan(0.05);
+    expect(diff).toBeGreaterThan(0.01); // the perceptual volume 0.2 is a gain of 0.069
     expect(live.patch?.blocks[0]?.params).toEqual({
       system: "lorenz",
       param: 0.9,

@@ -182,7 +182,12 @@ describe("DC-blocker guard (spec §4.2 step 8, defense in depth)", () => {
       t.peak[t.peak.length - 1] = 1e-320;
     });
     const e = new Engine({ maxFrames: 256 });
-    e.load(voice({ system: "rossler", observable: "x", param: 1, ...extra }), cat, 48_000);
+    // Tonality 0: this checks the DC-blocker guard alone (the tonal guard has its own test).
+    e.load(
+      voice({ system: "rossler", observable: "x", param: 1, tonality: 0, ...extra }),
+      cat,
+      48_000,
+    );
     const [l, r] = [new Float64Array(256), new Float64Array(256)];
     e.process(256, l, r);
     // The Output block keeps NaN away from the speakers.

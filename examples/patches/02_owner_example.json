@@ -6,48 +6,27 @@
       "id": "lfo_param",
       "type": "modulator",
       "params": {
-        "shape": "sine",
-        "period_s": 8.0,
-        "mode": "loop"
+        "period_s": 8.0
       }
     },
     {
       "id": "lfo_amp",
       "type": "modulator",
       "params": {
-        "shape": "triangle",
-        "period_s": 4.0,
-        "mode": "loop"
+        "shape": "triangle"
       }
     },
     {
       "id": "rossler",
       "type": "dynamical",
-      "params": {
-        "system": "rossler",
-        "note": "A3",
-        "cents": 0.0,
-        "pitch_min": "A1",
-        "pitch_max": "A5",
-        "pitch_lock": true,
-        "amp_curve": "perceptual",
-        "amp": 1.0,
-        "tonality": 0.3
-      }
+      "params": {}
     },
     {
       "id": "lorenz",
       "type": "dynamical",
       "params": {
         "system": "lorenz",
-        "note": "E3",
-        "cents": 0.0,
-        "pitch_min": "A1",
-        "pitch_max": "A5",
-        "pitch_lock": true,
-        "amp_curve": "perceptual",
-        "amp": 1.0,
-        "tonality": 0.3
+        "note": "E3"
       }
     },
     {

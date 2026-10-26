@@ -1,5 +1,5 @@
 /**
- * Shared document rules: the edge-case patches of `examples/golden/documents.json`.
+ * Shared document rules: the edge-case patches of `examples/documents.json`.
  *
  * The Python reference reads the same file (`lab/tests/test_documents.py`), so both engines
  * accept and reject exactly the same patch documents (spec §3, §4, §5).
@@ -32,7 +32,7 @@ interface DocumentFixture {
 // JSON.parse reads 1e400 and 400-digit integers as Infinity, and "\ud800" as an unpaired
 // surrogate, exactly as the engine would receive them from a patch file.
 const fixture = JSON.parse(
-  readFileSync(resolve(EXAMPLES, "golden", "documents.json"), "utf8"),
+  readFileSync(resolve(EXAMPLES, "documents.json"), "utf8"),
 ) as DocumentFixture;
 
 /**
@@ -64,7 +64,7 @@ function load(doc: unknown): Engine {
   return engine;
 }
 
-describe("shared document rules (examples/golden/documents.json)", () => {
+describe("shared document rules (examples/documents.json)", () => {
   test("the fixture is well formed", () => {
     const names = fixture.cases.map((c) => c.name);
     expect(new Set(names).size).toBe(names.length);

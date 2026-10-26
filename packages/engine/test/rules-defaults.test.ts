@@ -29,6 +29,7 @@ const SPEC_DEFAULTS: Record<BlockType, Record<string, ParamValue>> = {
     pitch_lock: true,
     amp_curve: "perceptual",
     amp: 1,
+    tonality: 0.3,
   },
   sum: { gain: 1 },
   control_sum: { gain: 1 },

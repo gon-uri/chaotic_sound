@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { AMP_EXPONENT } from "../src/core/blocks/dynamical.ts";
 import { Output } from "../src/core/blocks/index.ts";
 import { Engine } from "../src/core/engine.ts";
 import {
@@ -104,11 +105,20 @@ describe("Output block (spec §4.4)", () => {
     expect(peak).toBeLessThanOrEqual(1);
   });
 
-  test("the volume multiplies before the clip", () => {
-    const got = output(0.5, [1.9, -1.9, 1, 4], [0.5, 2.2, -4, 0]);
-    // softclip(0.5·1.9) = softclip(0.95), not 0.5·softclip(1.9).
-    expectClose(got.left, [0.95, -0.95, 0.5, 2].map(specSoftClip), "left");
-    expectClose(got.right, [0.25, 1.1, -2, 0].map(specSoftClip), "right");
+  test("the perceptual volume multiplies before the clip", () => {
+    // v = volume^(1/(2·log10 2)) (spec §4.4), applied before the clip: softclip(v·x).
+    const v = 0.5 ** AMP_EXPONENT;
+    const got = output(0.5, [3, -3, 1, 4], [0.5, 2.2, -4, 0]);
+    expectClose(
+      got.left,
+      [3, -3, 1, 4].map((x) => specSoftClip(v * x)),
+      "left",
+    );
+    expectClose(
+      got.right,
+      [0.5, 2.2, -4, 0].map((x) => specSoftClip(v * x)),
+      "right",
+    );
   });
 
   test("a loud patch is soft-clipped at the output", () => {

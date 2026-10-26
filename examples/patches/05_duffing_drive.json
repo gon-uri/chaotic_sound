@@ -6,9 +6,7 @@
       "id": "lfo",
       "type": "modulator",
       "params": {
-        "shape": "sine",
-        "period_s": 12.0,
-        "mode": "loop"
+        "period_s": 12.0
       }
     },
     {
@@ -16,14 +14,7 @@
       "type": "dynamical",
       "params": {
         "system": "duffing",
-        "note": "G2",
-        "cents": 0.0,
-        "pitch_min": "A1",
-        "pitch_max": "A5",
-        "pitch_lock": true,
-        "amp_curve": "perceptual",
-        "amp": 1.0,
-        "tonality": 0.3
+        "note": "G2"
       }
     },
     {

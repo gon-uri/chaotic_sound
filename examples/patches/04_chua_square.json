@@ -7,8 +7,7 @@
       "type": "modulator",
       "params": {
         "shape": "square",
-        "period_s": 3.0,
-        "mode": "loop"
+        "period_s": 3.0
       }
     },
     {
@@ -16,14 +15,7 @@
       "type": "dynamical",
       "params": {
         "system": "chua",
-        "note": "D3",
-        "cents": 0.0,
-        "pitch_min": "A1",
-        "pitch_max": "A5",
-        "pitch_lock": true,
-        "amp_curve": "perceptual",
-        "amp": 1.0,
-        "tonality": 0.3
+        "note": "D3"
       }
     },
     {

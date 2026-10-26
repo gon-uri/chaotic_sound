@@ -5,32 +5,12 @@
     {
       "id": "twin_a",
       "type": "dynamical",
-      "params": {
-        "system": "rossler",
-        "note": "A3",
-        "cents": 0.0,
-        "pitch_min": "A1",
-        "pitch_max": "A5",
-        "pitch_lock": true,
-        "amp_curve": "perceptual",
-        "amp": 1.0,
-        "tonality": 0.3
-      }
+      "params": {}
     },
     {
       "id": "twin_b",
       "type": "dynamical",
-      "params": {
-        "system": "rossler",
-        "note": "A3",
-        "cents": 0.0,
-        "pitch_min": "A1",
-        "pitch_max": "A5",
-        "pitch_lock": true,
-        "amp_curve": "perceptual",
-        "amp": 1.0,
-        "tonality": 0.3
-      }
+      "params": {}
     },
     {
       "id": "mix",

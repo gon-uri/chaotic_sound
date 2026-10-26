@@ -1,0 +1,25 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "osc",
+      "type": "dynamical",
+      "params": {
+        "system": "rossler",
+        "amp_curve": "linear",
+        "amp": 0.5
+      }
+    },
+    {
+      "id": "out",
+      "type": "output"
+    }
+  ],
+  "cables": [
+    {
+      "from": "osc.out",
+      "to": "out.in"
+    }
+  ]
+}

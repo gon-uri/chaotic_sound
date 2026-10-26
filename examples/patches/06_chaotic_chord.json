@@ -7,23 +7,15 @@
       "type": "modulator",
       "params": {
         "shape": "triangle",
-        "period_s": 10.0,
-        "mode": "loop"
+        "period_s": 10.0
       }
     },
     {
       "id": "rossler",
       "type": "dynamical",
       "params": {
-        "system": "rossler",
         "note": "A2",
-        "cents": 0.0,
-        "pitch_min": "A1",
-        "pitch_max": "A5",
-        "pitch_lock": true,
-        "amp_curve": "perceptual",
-        "amp": 0.9,
-        "tonality": 0.3
+        "amp": 0.9
       }
     },
     {
@@ -32,13 +24,7 @@
       "params": {
         "system": "chua",
         "note": "E3",
-        "cents": 0.0,
-        "pitch_min": "A1",
-        "pitch_max": "A5",
-        "pitch_lock": true,
-        "amp_curve": "perceptual",
-        "amp": 0.8,
-        "tonality": 0.3
+        "amp": 0.8
       }
     },
     {
@@ -46,14 +32,7 @@
       "type": "dynamical",
       "params": {
         "system": "lorenz",
-        "note": "A3",
-        "cents": 0.0,
-        "pitch_min": "A1",
-        "pitch_max": "A5",
-        "pitch_lock": true,
-        "amp_curve": "perceptual",
-        "amp": 0.8,
-        "tonality": 0.3
+        "amp": 0.8
       }
     },
     {
@@ -62,13 +41,7 @@
       "params": {
         "system": "rikitake",
         "note": "C#4",
-        "cents": 0.0,
-        "pitch_min": "A1",
-        "pitch_max": "A5",
-        "pitch_lock": true,
-        "amp_curve": "perceptual",
-        "amp": 0.7,
-        "tonality": 0.3
+        "amp": 0.7
       }
     },
     {
@@ -77,13 +50,7 @@
       "params": {
         "system": "duffing",
         "note": "E4",
-        "cents": 0.0,
-        "pitch_min": "A1",
-        "pitch_max": "A5",
-        "pitch_lock": true,
-        "amp_curve": "perceptual",
-        "amp": 0.7,
-        "tonality": 0.3
+        "amp": 0.7
       }
     },
     {

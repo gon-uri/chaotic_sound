@@ -9,7 +9,7 @@
 
 import { Session } from "node:inspector/promises";
 import { describe, expect, test } from "vitest";
-import type { Dynamical } from "../src/core/blocks/dynamical.ts";
+import { AMP_EXPONENT, type Dynamical } from "../src/core/blocks/dynamical.ts";
 import { Catalog } from "../src/core/catalog.ts";
 import { Engine } from "../src/core/engine.ts";
 import type {
@@ -367,7 +367,16 @@ describe("each live setting takes effect", () => {
       play(live, 0.2 * FS); // the glide snaps to its target within 1e-9 by then
       play(ref, 0.2 * FS);
       const a = play(live, N).left;
-      expect(firstDiff(a, times(play(ref, N).left, 0.5)), `${id}.${name}`).toBe(-1);
+      const b = play(ref, N).left;
+      if (id === "mix") {
+        expect(firstDiff(a, times(b, 0.5)), `${id}.${name}`).toBe(-1);
+      } else {
+        // The Output's curve: halving the knob multiplies by 0.5^1.661 (spec §4.4), which is
+        // not exact in float64 (two pow calls), so compare to the last bits.
+        const f = 0.5 ** AMP_EXPONENT;
+        const err = a.reduce((m, v, i) => Math.max(m, Math.abs(v - f * b[i]!)), 0);
+        expect(err, `${id}.${name}`).toBeLessThan(1e-15);
+      }
     }
   });
 
@@ -737,6 +746,7 @@ describe("gliding settings", () => {
    * the closed-form glide, never moves by more than the one-pole's first step α·|v1 − v0|
    * per sample, and is exactly `v1` once the glide has snapped (0.2 s later).
    */
+  /** `curve` maps the knob to the block's gain (the Output's volume is perceptual). */
   function checkGlide(
     out: Float64Array,
     inp: Float64Array,
@@ -744,25 +754,29 @@ describe("gliding settings", () => {
     v1: number,
     n0: number,
     fs = FS,
+    curve: "linear" | "perceptual" = "linear",
   ) {
     const alpha = 1 - Math.exp(-1 / (0.005 * fs));
     let shape = 0;
     let step = 0;
     let prev = Number.NaN;
+    const gain = (v: number): number => (curve === "perceptual" ? v ** AMP_EXPONENT : v);
+    const [g0, g1] = [gain(v0), gain(v1)];
     for (let n = 0; n < out.length; n++) {
       if (n < n0) {
-        expect(out[n], `sample ${n} before the change`).toBe(v0 * inp[n]!);
+        expect(out[n], `sample ${n} before the change`).toBe(g0 * inp[n]!);
         continue;
       }
       if (n >= n0 + 0.2 * fs) {
-        expect(out[n], `sample ${n} after the glide`).toBe(v1 * inp[n]!);
+        expect(out[n], `sample ${n} after the glide`).toBe(g1 * inp[n]!);
         continue;
       }
       if (Math.abs(inp[n]!) < 1e-2) {
         prev = Number.NaN;
         continue;
       }
-      const v = out[n]! / inp[n]!;
+      const g = out[n]! / inp[n]!;
+      const v = curve === "perceptual" ? g ** (1 / AMP_EXPONENT) : g; // back to the knob
       shape = Math.max(shape, Math.abs(v - glide(v0, v1, n - n0, alpha)));
       const last = n === n0 ? v0 : prev;
       if (!Number.isNaN(last)) step = Math.max(step, Math.abs(v - last));
@@ -802,12 +816,12 @@ describe("gliding settings", () => {
 
   test("Output volume glides from 0.5 to 0.1", () => {
     const r = chainWithChange("out", "volume", 0.1);
-    checkGlide(r.out!, r.mix!, 0.5, 0.1, N);
+    checkGlide(r.out!, r.mix!, 0.5, 0.1, N, FS, "perceptual");
   });
 
   test("the glide lasts 5 ms at any sample rate (44.1 kHz)", () => {
     const r = chainWithChange("out", "volume", 0.1, 44_100);
-    checkGlide(r.out!, r.mix!, 0.5, 0.1, N, 44_100);
+    checkGlide(r.out!, r.mix!, 0.5, 0.1, N, 44_100, "perceptual");
   });
 
   test("Sum gain glides from 0.8 to 0.2", () => {
@@ -891,7 +905,7 @@ describe("gliding settings", () => {
     const r = record(e, 0.5 * FS, ["hold", "cs", "osc", "mix", "out"]);
     expect(firstDiff(r.cs!, times(r.hold!, 0.9))).toBe(-1);
     expect(firstDiff(r.mix!, times(r.osc!, 0.8))).toBe(-1);
-    expect(firstDiff(r.out!, times(r.mix!, 0.5))).toBe(-1);
+    expect(firstDiff(r.out!, times(r.mix!, 0.5 ** AMP_EXPONENT))).toBe(-1); // perceptual volume
   });
 });
 

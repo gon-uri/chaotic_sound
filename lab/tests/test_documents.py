@@ -1,4 +1,4 @@
-"""Shared document rules: the edge-case patches of ``examples/golden/documents.json``.
+"""Shared document rules: the edge-case patches of ``examples/documents.json``.
 
 The TypeScript engine reads the same file (``packages/engine/test/documents.test.ts``), so
 both engines accept and reject exactly the same patch documents (spec §3, §4, §5).
@@ -15,7 +15,7 @@ from chaotic_sound.blocks import Dynamical
 from chaotic_sound.catalog import Catalog
 from chaotic_sound.patch import Patch, PatchError
 
-DOCUMENTS = Path(__file__).resolve().parents[2] / "examples" / "golden" / "documents.json"
+DOCUMENTS = Path(__file__).resolve().parents[2] / "examples" / "documents.json"
 FIXTURE = json.loads(DOCUMENTS.read_text(encoding="utf-8"))
 FS = FIXTURE["sample_rate"]
 FRAMES = FIXTURE["render_frames"]

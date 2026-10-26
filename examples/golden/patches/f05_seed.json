@@ -1,0 +1,25 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "osc",
+      "type": "dynamical",
+      "params": {
+        "system": "rikitake",
+        "seed": 123456789,
+        "param": 0.3
+      }
+    },
+    {
+      "id": "out",
+      "type": "output"
+    }
+  ],
+  "cables": [
+    {
+      "from": "osc.out",
+      "to": "out.in"
+    }
+  ]
+}

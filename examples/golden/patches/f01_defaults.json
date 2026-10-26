@@ -1,0 +1,51 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "lfo",
+      "type": "modulator"
+    },
+    {
+      "id": "lorenz",
+      "type": "dynamical",
+      "params": {
+        "system": "lorenz"
+      }
+    },
+    {
+      "id": "ross",
+      "type": "dynamical"
+    },
+    {
+      "id": "mix",
+      "type": "sum"
+    },
+    {
+      "id": "out",
+      "type": "output"
+    }
+  ],
+  "cables": [
+    {
+      "from": "lfo.out",
+      "to": "ross.pitch"
+    },
+    {
+      "from": "lfo.out",
+      "to": "lorenz.param"
+    },
+    {
+      "from": "lorenz.out",
+      "to": "mix.in"
+    },
+    {
+      "from": "ross.out",
+      "to": "mix.in"
+    },
+    {
+      "from": "mix.out",
+      "to": "out.in"
+    }
+  ]
+}

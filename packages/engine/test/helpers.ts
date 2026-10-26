@@ -7,14 +7,17 @@ import type { PatchDocument } from "../src/core/patch.ts";
 export const EXAMPLES = resolve(REPO_ROOT, "examples");
 export const catalog: CatalogDocument = readCatalog();
 
-export function examplePatches(): string[] {
-  return readdirSync(resolve(EXAMPLES, "patches"))
+/** Golden files (`examples/golden/*.json`), one per demo patch or golden fixture. */
+export function goldenFiles(): string[] {
+  return readdirSync(resolve(EXAMPLES, "golden"))
     .filter((f) => f.endsWith(".json"))
     .sort();
 }
 
+/** A patch from `examples/patches/` by file name, or any path relative to `examples/`. */
 export function loadPatch(name: string): PatchDocument {
-  return JSON.parse(readFileSync(resolve(EXAMPLES, "patches", name), "utf8")) as PatchDocument;
+  const path = name.includes("/") ? resolve(EXAMPLES, name) : resolve(EXAMPLES, "patches", name);
+  return JSON.parse(readFileSync(path, "utf8")) as PatchDocument;
 }
 
 export function f64(b64: string): Float64Array {

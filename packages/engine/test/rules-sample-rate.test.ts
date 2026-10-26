@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { AMP_EXPONENT } from "../src/core/blocks/dynamical.ts";
 import type { Shape } from "../src/core/blocks/modulator.ts";
 import { centsBetween, noteToHz } from "../src/core/dsp/pitch.ts";
 import { Engine } from "../src/core/engine.ts";
@@ -35,13 +36,18 @@ const LEVEL = editedCatalog("rossler", (e) => {
   x.std = x.std.map(() => 2.5e5);
   x.peak = x.peak.map(() => 8e5);
 });
-/** The level probe (knob at 0, so y ≈ −g), at the Output's volume 0.5 (no soft clip). */
+/**
+ * The level probe (knob at 0, so y ≈ −g), at the Output's volume 0.5 (no soft clip), whose
+ * perceptual gain is VOLUME_GAIN (spec §4.4). Tonality 0: the probe reads the raw signal.
+ */
 const PROBE: PatchDocument = voice({
   system: "rossler",
   observable: "x",
   amp_curve: "linear",
   param: 0,
+  tonality: 0,
 });
+const VOLUME_GAIN = 0.5 ** AMP_EXPONENT;
 
 /** Undo the DC blocker y_out[n] = y[n] − y[n−1] + R·y_out[n−1] (zero initial state). */
 function undoDcBlocker(out: Float64Array, fs: number): Float64Array {
@@ -89,7 +95,7 @@ describe.each(RATES)("at %i Hz", (fs) => {
     const r = render(PROBE, Math.round(0.02 * fs), { fs, cat: LEVEL });
     // Pre-DC audio y ≈ −a_s (linear curve, amp 1): the smoothed amp itself.
     const amp = undoDcBlocker(
-      r.left.map((v) => v / 0.5),
+      r.left.map((v) => v / VOLUME_GAIN),
       fs,
     ).map((v) => -v);
     const n63 = amp.findIndex((a) => a >= 1 - Math.exp(-1));
@@ -118,7 +124,7 @@ describe.each(RATES)("at %i Hz", (fs) => {
     e.process(n, l.subarray(n0), r.subarray(n0));
     // −y − 1 ≈ u_s, which goes 0 → 0.5 as 1 − (1 − α)^(k+1): estimate τ from each k.
     const y = undoDcBlocker(
-      l.map((v) => v / 0.5),
+      l.map((v) => v / VOLUME_GAIN),
       fs,
     );
     const expected = Math.max(DECLICK_S, 2 / noteToHz("A3"));
@@ -146,10 +152,11 @@ describe.each(RATES)("at %i Hz", (fs) => {
     moved.setParam("out", "volume", 0.25);
     steady.process(n, l.subarray(n0), r.subarray(n0));
     moved.process(n, lm.subarray(n0), rm.subarray(n0));
-    // v[k] = 0.5·moved/steady goes 0.5 → 0.25 as 1 − (1 − α)^(k+1): estimate τ from each k.
+    // The knob v[k] = 0.5·(moved/steady)^(1/1.661) (the perceptual curve inverted) goes
+    // 0.5 → 0.25 as 1 − (1 − α)^(k+1): estimate τ from each k.
     let checked = 0;
     for (let k = 0; k < n; k++) {
-      const v = (0.5 * lm[n0 + k]!) / l[n0 + k]!;
+      const v = 0.5 * (lm[n0 + k]! / l[n0 + k]!) ** (1 / AMP_EXPONENT);
       const done = (0.5 - v) / 0.25;
       if (done < 0.05 || done > 0.95) continue;
       const tau = (k + 1) / (-fs * Math.log(1 - done));

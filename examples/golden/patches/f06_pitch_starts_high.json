@@ -1,0 +1,49 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "mod",
+      "type": "modulator",
+      "params": {
+        "shape": "ramp_down",
+        "period_s": 0.37
+      }
+    },
+    {
+      "id": "lfo",
+      "type": "modulator",
+      "params": {
+        "shape": "triangle",
+        "period_s": 0.09
+      }
+    },
+    {
+      "id": "osc",
+      "type": "dynamical",
+      "params": {
+        "system": "rossler",
+        "pitch_min": "C2",
+        "pitch_max": "C4"
+      }
+    },
+    {
+      "id": "out",
+      "type": "output"
+    }
+  ],
+  "cables": [
+    {
+      "from": "mod.out",
+      "to": "osc.pitch"
+    },
+    {
+      "from": "lfo.out",
+      "to": "osc.param"
+    },
+    {
+      "from": "osc.out",
+      "to": "out.in"
+    }
+  ]
+}
