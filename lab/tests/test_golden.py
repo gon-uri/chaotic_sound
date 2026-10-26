@@ -15,7 +15,8 @@ from chaotic_sound.blocks import Dynamical
 from chaotic_sound.patch import Patch
 
 GOLDEN = Path(__file__).resolve().parents[2] / "examples" / "golden"
-FILES = sorted(GOLDEN.glob("*.json"))
+# documents.json holds the shared document rules (tests/test_documents.py), not vectors.
+FILES = sorted(p for p in GOLDEN.glob("*.json") if p.name != "documents.json")
 
 
 def f64(b64: str) -> np.ndarray:

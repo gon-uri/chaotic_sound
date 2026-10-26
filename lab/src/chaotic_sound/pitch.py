@@ -5,8 +5,9 @@ temperament.
 
 Note-name grammar (spec §4.2): a letter ``A``–``G`` (either case), at most one accidental
 (``#`` or ``♯`` = sharp, ``b`` or ``♭`` = flat), then an octave from ``-1`` to ``9``, with no
-spaces. Examples: ``A4``, ``c#3``, ``Bb2``, ``C-1``. Dynamical boxes accept notes from
-:data:`NOTE_MIN` to :data:`NOTE_MAX` (C0 … C8).
+spaces or other characters around it, not even a trailing newline. Examples: ``A4``,
+``c#3``, ``Bb2``, ``C-1``. Dynamical boxes accept notes from :data:`NOTE_MIN` to
+:data:`NOTE_MAX` (C0 … C8).
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ A4_HZ = 440.0
 A4_MIDI = 69
 
 _LETTER_SEMITONES = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
-_NOTE_RE = re.compile(r"^([A-Ga-g])([#♯b♭]?)(-1|[0-9])$")
+_NOTE_RE = re.compile(r"([A-Ga-g])([#♯b♭]?)(-1|[0-9])")  # used with fullmatch
 NOTE_MIN = 12
 """MIDI number of C0, the lowest note a dynamical box accepts."""
 NOTE_MAX = 108
@@ -34,7 +35,9 @@ def note_to_midi(note: str) -> int:
     >>> note_to_midi("A4"), note_to_midi("C4"), note_to_midi("Bb2"), note_to_midi("C-1")
     (69, 60, 46, 0)
     """
-    match = _NOTE_RE.match(note)
+    # fullmatch, not match: a pattern ending in `$` would also accept "A4\n" (Python's `$`
+    # matches before a final newline), which the TypeScript engine rejects.
+    match = _NOTE_RE.fullmatch(note) if isinstance(note, str) else None
     if match is None:
         raise ValueError(f"not a note name: {note!r} (expected e.g. 'A4', 'C#3', 'Bb2')")
     letter, accidentals, octave = match.groups()
