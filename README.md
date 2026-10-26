@@ -67,6 +67,19 @@ npm run playground                        # developer page: http://localhost:517
 npm run render -- examples/patches/06_chaotic_chord.json chord.wav --seconds 20
 ```
 
+## Hosting the editor
+
+`npm run build:web` writes a static site to `apps/web/dist/` (about 3.3 MB). All synthesis runs
+in the visitor's browser, so any static host works. Asset paths are relative, so it also
+works under a sub-path.
+
+GitHub Pages: set the repository's Settings → Pages → Source to "GitHub Actions". Then run
+the **Deploy to GitHub Pages** workflow from the Actions tab (`.github/workflows/pages.yml`,
+manual only). It runs the checks and tests, builds the editor and publishes it at
+`https://<owner>.github.io/<repository>/`. The site is public to anyone with the link, and on a
+private repository Pages needs a paid GitHub plan. To try the built site locally, use the
+`web-dist` launch configuration (`vite preview` under `/chaotic_sound/`).
+
 ## Credits
 
 The systems, parameter values and initial conditions come from **dysts** by William Gilpin and

@@ -191,6 +191,19 @@ top of the tonality work.
      the Python side;
    - on Linux CI the TypeScript prefix check uses the 1e-12 bound instead of the exact records.
 
+## B8. Hosting
+
+- **Deploy workflow added**, manual only (`.github/workflows/pages.yml`). Steps: checkout, Node
+  24, `npm ci`, checks and tests, build, deploy to GitHub Pages.
+- **Your steps:**
+  1. Settings → Pages → Source: "GitHub Actions";
+  2. decide on visibility (on a private repository Pages needs a paid plan, and the site is
+     public to anyone with the link);
+  3. Actions → "Deploy to GitHub Pages" → Run workflow.
+- **Tested locally under `/chaotic_sound/`** (the Pages sub-path): the editor loads, plays and
+  opens Learn-more pages. Before sharing widely: the system pages are marked as unreviewed
+  drafts, and the project has no license yet (section E).
+
 ## C. What to listen to (`lab/outputs/demos/`)
 
 | File | Listen for |
