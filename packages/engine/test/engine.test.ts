@@ -117,7 +117,7 @@ describe("dynamical box", () => {
     const [a, b, c, d] = [0, 0, 0, 0].map(() => new Float64Array(4800));
     live.process(4800, a!, b!);
     ref.process(4800, c!, d!);
-    // Changing the output volume recreates only the output block; osc keeps going.
+    // Changing the output volume (a live knob) leaves osc running.
     live.setParam("out", "volume", 0.25);
     ref.setParam("out", "volume", 0.25);
     const [l1, r1, l2, r2] = [0, 0, 0, 0].map(() => new Float64Array(4800));
@@ -147,6 +147,7 @@ test("WAV encoding", () => {
 });
 
 describe("live parameter changes", () => {
+  // The detailed tests (reference renders for every live setting) are in live.test.ts.
   test("knobs change live without restarting the oscillator", () => {
     const doc = single({ system: "lorenz", param: 0.4 });
     const live = new Engine({ maxFrames: 256 });
@@ -158,6 +159,7 @@ describe("live parameter changes", () => {
     const [c, d] = buf();
     live.process(4800, a, b);
     ref.process(4800, c, d);
+    const osc = live.block("osc");
     // Setting the same value live must be a no-op (state kept, no restart).
     live.setParam("osc", "param", 0.4);
     const [l1, r1] = buf();
@@ -165,14 +167,18 @@ describe("live parameter changes", () => {
     live.process(4800, l1, r1);
     ref.process(4800, l2, r2);
     expect(Array.from(l1)).toEqual(Array.from(l2));
-    // A new value changes the sound gradually (the slew smoother), from where it was.
+    // New values: the same block keeps running, it is not recreated.
     live.setParam("osc", "param", 0.9);
     live.setParam("osc", "amp", 0.5);
     live.setParam("out", "volume", 0.2);
     live.setParam("osc", "note", "E3");
+    expect(live.block("osc")).toBe(osc);
     const [l3, r3] = buf();
     live.process(4800, l3, r3);
-    expect(Math.abs(l3[0]! - l2[l2.length - 1]!)).toBeLessThan(0.05); // no jump
+    // A restart would replay the edited patch from t = 0, fading in from silence.
+    const restart = render(live.patch!, 4800).left;
+    const diff = l3.reduce((m, v, i) => Math.max(m, Math.abs(v - restart[i]!)), 0);
+    expect(diff).toBeGreaterThan(0.05);
     expect(live.patch?.blocks[0]?.params).toEqual({
       system: "lorenz",
       param: 0.9,
