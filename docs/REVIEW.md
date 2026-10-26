@@ -1,6 +1,6 @@
 # Review: decisions waiting for the owner
 
-- Last updated: 2026-10-26, after the owner's answers to the first round.
+- Last updated: 2026-10-26, after the owner's third round of answers (section A3).
 - Section A records how those answers were applied.
 - Section B lists the new choices I made that need a look. Each has a recommendation; edit or
   strike freely.
@@ -29,35 +29,17 @@ formula exactly (spec v0.3): the smoothers, the DC blocker, the modulator phase,
 seeding, null and unknown-key handling, and the note grammar. The test suite went from 132
 to 215 tests.
 
-## B. New choices for you to check
+## A3. Your third round of answers, applied (spec v0.5)
 
-1. **The parameter slew** in system time: the parameter smoother is at least
-   max(5 ms, 2 oscillation periods). It came from the modulation study and fixed Chua's
-   safety resets under square modulators. The side effect: at low notes, a square LFO's jump
-   takes longer (about 36 ms at A1). *Recommendation: keep.*
-2. **Peak-limited level**: min(RMS 0.25, robust peak 0.8). Spiky voices are slightly quieter
-   rather than clipped. *Recommendation: keep.*
-3. **Classic values are no longer the defaults.** With the default at mid-range, Lorenz starts
-   at ρ = 48 (not 28) and Rössler at c = 6.56 (not 5.7). The classic values are still inside
-   the ranges and stored as `p_reference`. Do you want the Learn-more pages to offer a
-   "classic value" button?
-4. **Pitch input mapping**: absolute and linear in semitones between two note settings.
-   Alternative: relative to the note (± N semitones, for vibrato). *Recommendation: keep
-   absolute for v1; add a relative mode with the future modulator min/max properties.*
-5. **The Sum gain and the Output volume are still linear.** Should they use the perceptual
-   curve too, for consistency? *Recommendation: yes for Output volume, no for Sum gain (a
-   mixing coefficient).*
-6. **Rikitake's range top is set by hand at μ = 1.8**, because of quiet spells on the
-   attractor above about 2.1 (screening study).
-7. **Notes are limited to C0 … C8.** Aliasing becomes measurable above about F#6
-   (`docs/studies/aliasing.md`). Oversampling is on the roadmap.
-8. **TypeScript tooling**:
-   - Node 24 LTS, installed from the official nodejs.org tarball into `~/.local/node`
-     (Homebrew can't build on macOS 14);
-   - npm workspaces (no extra package manager);
-   - TypeScript in strict mode, run directly by Node (no build step for the engine);
-   - Vitest;
-   - Biome (one tool for lint and format, like ruff).
+| # | Your answer | What I did |
+|---|---|---|
+| B1–B8 | "I agree with all the recommendations" | Kept: the parameter slew, the peak-limited level, mid-range defaults (classic values kept as `p_reference`), absolute pitch mapping, Rikitake's top set by hand, notes C0–C8, the TypeScript tooling |
+| B5 | Output volume perceptual, Sum gain linear | **Output volume now uses the amp curve**: v^1.661, so halving the knob is −10 dB. The default 0.8 is a gain of 0.69, so patches are about 1.3 dB quieter than before. Sum gain stays a linear mixing coefficient (spec §4.4) |
+| Tonality | Design D, also as an input, default 0.3 | **Implemented** as the `tonality` knob and input of every dynamical box (spec §4.2 step 7, ADR 0015). Choices to check by ear: **B6** |
+
+Still open from that list: **B3**, whether the Learn-more pages should offer a "classic
+value" button that sets the knob to the dysts value (ρ = 28, c = 5.7, …). *My
+recommendation: yes; it is one button and a nice bridge to the literature.*
 
 ## B2. Phase 2 (TypeScript engine), new and ready to try
 
@@ -112,15 +94,6 @@ npm run web   # then open http://localhost:5174
 - Open questions are in `docs/design/web-app.md` §5: visual style, page order, default
   patch, mobile.
 
-## B4. Your tonality-knob idea (prototyped, not implemented)
-
-- Analysis and recommendation: `docs/ideas/tonal-knob.md`.
-- Listen to `lab/outputs/studies/tonal/` (run `uv run python
-  scripts/studies/tonal_prototype.py` from `lab/` to regenerate).
-- In short: the idea is good and very feasible. Design D (harmonic resynthesis) keeps each
-  attractor's brightness at the tonal end, unlike a sine crossfade or plain comb filtering.
-  Three questions for you are at the end of the note.
-
 ## B5. Engine review fixes (spec v0.4, ADR 0014: Proposed)
 
 Decisions I made while fixing the review's findings. Each has a recommendation; nothing
@@ -151,6 +124,24 @@ changes the sound of a patch played without live changes (the golden vectors are
 
 New for you: `docs/dev/typescript-for-python.md`, a short guide to the TypeScript idioms used
 in the code, written for a Python programmer.
+
+## B6. Tonality: choices to check by ear (ADR 0015)
+
+Try it in the editor (`npm run web`, the **Tonality** knob on each dynamical box) or in the
+demos. All demos now play at the default 0.3.
+
+1. **Phase tracking instead of fixed-phase partials.** The prototype's partials beat against
+   the raw sound at intermediate settings (a 2–4 dB tremolo at 0.3). Each partial now follows
+   its band's slowly smoothed phase. *Recommendation: keep.*
+2. **At 1 the tone is steady but alive**, not a static stack of sines: the partials keep the
+   attractor's slow phase wander (90–100% harmonic).
+3. **Mix law** (1 − τ)^0.75 / τ^0.75: level within about ±1.2 dB across systems and settings.
+4. **Lorenz at intermediate settings reads up to about 10 cents sharp**, because of its broad
+   spectrum. The other systems stay within 3 cents. I found no variant that fixes this without
+   bringing the beating back.
+5. **8 harmonics** (over 99.99% of the power for all five systems). Cost: about 0.9% of a
+   core per voice.
+6. **Open:** a second "brightness" knob (idea note, question 2).
 
 ## C. What to listen to (`lab/outputs/demos/`)
 

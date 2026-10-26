@@ -4,7 +4,8 @@
  *
  * Per sample: smooth the controls, turn the pitch into a frequency f, map the knob u to the
  * system parameter, set the time scale k = P(u)·f, advance the ODE by k/fs with RK4
- * sub-steps, and turn the heard variable into level-normalized audio.
+ * sub-steps, turn the heard variable into a level-normalized signal, make it more harmonic
+ * by the tonality amount (harmonic resynthesis, ADR 0015), and apply the amp curve.
  */
 
 import type { CatalogEntry, ObservableTable } from "../catalog.ts";
@@ -20,6 +21,7 @@ import { midiToHz, NOTE_MAX, NOTE_MIN, noteToHz, noteToMidi } from "../dsp/pitch
 import { makeRk4Scratch, renderTuned, type TunedRenderArgs } from "../dsp/rk4.ts";
 import { Mulberry32, stableSeed } from "../dsp/rng.ts";
 import { audioVariables, getSystem, type SystemDef } from "../dsp/systems.ts";
+import { TonalChannel, tonal } from "../dsp/tonal.ts";
 import { BLOCK_SPECS, defaultParam, type ParamValue, PatchError, withDefaults } from "../patch.ts";
 import type { BlockContext, BlockRuntime, PortSignal } from "./block.ts";
 
@@ -67,6 +69,7 @@ export class Dynamical implements BlockRuntime {
   // Live-editable settings (see setParam): knobs and pitch settings change without a reset.
   knobParam: number;
   knobAmp: number;
+  knobTonality: number;
   frequencyHz: number;
   pitchLock: boolean;
   perceptual: boolean;
@@ -93,10 +96,14 @@ export class Dynamical implements BlockRuntime {
   private readonly uState = new Float64Array(1);
   private readonly qState = new Float64Array(1);
   private readonly aState = new Float64Array(1);
+  private readonly tState = new Float64Array(1);
+  private readonly tonalLeft = new TonalChannel();
+  private readonly tonalRight = new TonalChannel();
   private readonly dcLeft = new Float64Array(2);
   private readonly dcRight = new Float64Array(2);
   private uInit = false;
   private qInit = false;
+  private tInit = false;
   private alpha = 0;
   private dcR = 0;
   private periodUnlocked = 0;
@@ -112,6 +119,13 @@ export class Dynamical implements BlockRuntime {
   private readonly a: Float64Array;
   /** Per-sample gain g(a) from the amp curve. */
   private readonly g: Float64Array;
+  private readonly tRaw: Float64Array;
+  /** Smoothed tonality τ_s and the fundamental actually heard f_a, per sample. */
+  private readonly tau: Float64Array;
+  private readonly fA: Float64Array;
+  /** Level-normalized signals r (step 7) before the tonality mix. */
+  private readonly rLeft: Float64Array;
+  private readonly rRight: Float64Array;
   private readonly pValues: Float64Array;
   private readonly dtau: Float64Array;
   private readonly traj: Float64Array;
@@ -169,6 +183,7 @@ export class Dynamical implements BlockRuntime {
     this.rightIndex = right === null ? -1 : system.variables.indexOf(right);
     this.knobParam = params.param === undefined ? entry.uDefault : (params.param as number);
     this.knobAmp = params.amp as number;
+    this.knobTonality = params.tonality as number;
     this.note = note;
     this.cents = params.cents as number;
     this.frequencyHz = noteToHz(note, this.cents);
@@ -193,6 +208,11 @@ export class Dynamical implements BlockRuntime {
     this.aRaw = new Float64Array(m);
     this.a = new Float64Array(m);
     this.g = new Float64Array(m);
+    this.tRaw = new Float64Array(m);
+    this.tau = new Float64Array(m);
+    this.fA = new Float64Array(m);
+    this.rLeft = new Float64Array(m);
+    this.rRight = new Float64Array(m);
     this.pValues = new Float64Array(m);
     this.dtau = new Float64Array(m);
     this.traj = new Float64Array(m * this.dim);
@@ -246,6 +266,9 @@ export class Dynamical implements BlockRuntime {
     this.curve.reset(DECLICK_TIME_S, sampleRate);
     this.uInit = false;
     this.qInit = false;
+    this.tInit = false;
+    this.tonalLeft.reset();
+    this.tonalRight.reset();
     this.aState[0] = 0; // amp starts at 0: every box fades in over a few ms
     this.dcR = dcBlockCoefficient(DC_BLOCK_HZ, sampleRate);
     this.dcLeft.fill(0);
@@ -261,6 +284,7 @@ export class Dynamical implements BlockRuntime {
     const uIn = inputs[0]?.[0] ?? null;
     const aIn = inputs[1]?.[0] ?? null;
     const qIn = inputs[2]?.[0] ?? null;
+    const tIn = inputs[3]?.[0] ?? null;
 
     // 1. Frequency: the note, or the smoothed pitch input mapped A1..A5 (spec §4.2 step 1).
     if (qIn === null) {
@@ -310,13 +334,30 @@ export class Dynamical implements BlockRuntime {
     // 6. Integrate.
     this.resets += renderTuned(this.rk4, n);
 
-    // 7. Audio, then the DC blocker.
-    this.audio(this.tableLeft, this.obsIndex, this.yLeft, n);
+    // 7. Level-normalized signal, tonality mix, amp curve, then the DC blocker.
+    const tRaw = tIn ?? this.tRaw.fill(this.knobTonality, 0, n);
+    if (!this.tInit) {
+      this.tState[0] = tRaw[0]!;
+      this.tInit = true;
+    }
+    onePole(tRaw, this.tState, this.alpha, this.tau, n);
+    const tonalOn = tIn !== null || this.knobTonality > 0;
+    if (tonalOn) {
+      for (let i = 0; i < n; i++) {
+        // The fundamental actually heard: f with pitch lock, f·P(u_default)/P(u) without.
+        this.fA[i] = this.pitchLock
+          ? this.freq[i]!
+          : (this.freq[i]! * this.periodUnlocked) / e.period(this.u[i]!);
+      }
+    }
+    this.normalized(this.tableLeft, this.obsIndex, this.rLeft, n);
+    this.mix(this.rLeft, this.tonalLeft, tonalOn, this.yLeft, n);
     dcBlock(this.yLeft, this.dcLeft, this.dcR, this.left, n);
     if (this.observableRight === null) {
       dcBlock(this.yLeft, this.dcRight, this.dcR, this.right, n);
     } else {
-      this.audio(this.tableRight, this.rightIndex, this.yRight, n);
+      this.normalized(this.tableRight, this.rightIndex, this.rRight, n);
+      this.mix(this.rRight, this.tonalRight, tonalOn, this.yRight, n);
       dcBlock(this.yRight, this.dcRight, this.dcR, this.right, n);
     }
     // Defense in depth: a non-finite sample would stay in the DC blocker's memory forever.
@@ -338,14 +379,24 @@ export class Dynamical implements BlockRuntime {
     }
   }
 
-  /** y = g · min(0.25/σ, 0.8/π) · (x_obs − μ) (spec §4.2 step 7). */
-  private audio(t: ObservableTable, index: number, y: Float64Array, n: number): void {
+  /** r = min(0.25/σ, 0.8/π) · (x_obs − μ) (spec §4.2 step 7). */
+  private normalized(t: ObservableTable, index: number, r: Float64Array, n: number): void {
     const e = this.entry;
     const dim = this.dim;
     for (let i = 0; i < n; i++) {
       const u = this.u[i]!;
       const scale = Math.min(RMS_TARGET / e.at(t.std, u), PEAK_TARGET / e.at(t.peak, u));
-      y[i] = this.g[i]! * scale * (this.traj[i * dim + index]! - e.at(t.mean, u));
+      r[i] = scale * (this.traj[i * dim + index]! - e.at(t.mean, u));
+    }
+  }
+
+  /** y = g · m, with m the tonality mix of r (or r itself when tonality is off). */
+  private mix(r: Float64Array, ch: TonalChannel, on: boolean, y: Float64Array, n: number): void {
+    if (on) {
+      tonal(r, this.fA, this.tau, this.sampleRate, ch, y, n); // y ← m
+      for (let i = 0; i < n; i++) y[i] = this.g[i]! * y[i]!;
+    } else {
+      for (let i = 0; i < n; i++) y[i] = this.g[i]! * r[i]!;
     }
   }
 
@@ -361,6 +412,9 @@ export class Dynamical implements BlockRuntime {
         return true;
       case "amp":
         this.knobAmp = (value ?? def("amp")) as number;
+        return true;
+      case "tonality":
+        this.knobTonality = (value ?? def("tonality")) as number; // smoothed like amp
         return true;
       case "pitch_lock":
         this.pitchLock = (value ?? def("pitch_lock")) as boolean;

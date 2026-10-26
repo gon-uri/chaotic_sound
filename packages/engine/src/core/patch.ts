@@ -96,6 +96,7 @@ export const BLOCK_SPECS: Readonly<Record<BlockType, BlockSpec>> = {
       { name: "param", type: "control", multi: false },
       { name: "amp", type: "control", multi: false },
       { name: "pitch", type: "control", multi: false },
+      { name: "tonality", type: "control", multi: false },
     ],
     outputs: [{ name: "out", type: "audio", multi: false }],
     params: {
@@ -111,6 +112,7 @@ export const BLOCK_SPECS: Readonly<Record<BlockType, BlockSpec>> = {
       seed: { kind: "integer", min: 0, max: 2 ** 31 - 1 },
       param: unit(),
       amp: unit(1),
+      tonality: unit(0.3), // the owner's default: mostly the raw attractor, more pitched
     },
   },
   sum: {

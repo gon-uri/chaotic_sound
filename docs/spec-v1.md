@@ -1,8 +1,10 @@
 # chaotic_sound: v1 specification
 
-- Status: **v0.4** (2026-10-26). v0.4 adds the live-edit rules, the NaN guards and the
-  document rules found by the TypeScript engine review (ADR 0014). v0.3 followed the owner's
-  review, the Phase 1 studies and the code review.
+- Status: **v0.5** (2026-10-26). v0.5 adds the owner's **tonality** knob and input (harmonic
+  resynthesis, §4.2 step 7, ADR 0015) and makes the Output volume perceptual (§4.4). v0.4
+  added the live-edit rules, the NaN guards and the document rules found by the TypeScript
+  engine review (ADR 0014). v0.3 followed the owner's review, the Phase 1 studies and the
+  code review.
 - Scope: the behavior of every box in the first version. Every engine (the Python reference
   in `lab/`, the TypeScript engine, a possible future C++ core) must follow this document.
   Golden tests check that they do (ADR 0011).
@@ -51,7 +53,7 @@ English.
 - **Sample rate** fs: any positive rate. The browser uses the device rate; offline renders
   default to 48 000 Hz. Engines reject non-finite or non-positive rates.
 - **Audio** is stereo with a nominal range of [-1, 1]. A dynamical box at amp = 1 has an RMS
-  of at most 0.25 (spec §4.2 step 7).
+  of about 0.25 (spec §4.2 step 7; the tonality mix can move it by about ±1.2 dB).
 - **Control** signals are mono, in [0, 1].
 - **Sanitizing.** Before a control value reaches any block input, NaN → 0, +∞ → 1, −∞ → 0,
   then it is clipped to [0, 1]. This applies to **each cable separately**.
@@ -112,6 +114,7 @@ and output shape(φ):
 | `param` | knob + control input | [0, 1] | catalog `u_default` |
 | `amp` | knob + control input | [0, 1] | 1.0 |
 | `pitch` | control input | [0, 1] (no knob: `note` is the manual value) | |
+| `tonality` | knob + control input | [0, 1]: 0 = the raw attractor, 1 = fully harmonic | 0.3 |
 | `out` | output | audio | |
 
 **Note grammar**: a letter `A`–`G` (either case), at most one accidental (`#` or `♯` sharp,
@@ -139,6 +142,7 @@ Per chunk and per sample i:
    | amp a | α = 1 − exp(−1/(0.005·fs)) | 0, so every box fades in |
    | parameter u (**slew**, ADR 0013) | 1 − exp(−1/(τ_n·fs)), τ_n = max(0.005, 2/f_n) | the first control value (no initial glide) |
    | pitch q | α = 1 − exp(−1/(0.005·fs)) | the first control value (no initial glide) |
+   | tonality τ | α = 1 − exp(−1/(0.005·fs)) | the first control value (no initial glide) |
 
    Here x is the cable value if connected, otherwise the knob. A state with |y| < 1e-30 is
    set to 0 (flush-to-zero).
@@ -157,14 +161,54 @@ Per chunk and per sample i:
    - h_max comes from the catalog.
    - **Sample timing**: the sample's output is the state *after* this advance.
 7. **Audio.**
-   - Per channel: y = g · s(u_s) · (x_obs − μ(u_s)), with
+   - Per channel, the level-normalized signal r = s(u_s) · (x_obs − μ(u_s)), with
      s(u) = min(0.25/σ(u), 0.8/π(u)).
    - μ, σ and π are the catalog's mean, standard deviation and robust peak tables of the
      observable, interpolated as in step 5.
-   - Then the **DC blocker** y_out[n] = y[n] − y[n−1] + R·y_out[n−1], with
-     R = exp(−2π·5/fs), zero initial state and flush-to-zero.
+   - **Tonality** (harmonic resynthesis, ADR 0015). It moves the energy of each harmonic band
+     of r onto a clean partial, so the sound becomes harmonic while keeping the attractor's
+     own balance of harmonics. Per channel, with K = 8 harmonics (they hold more than
+     99.99% of the power of every v1 system):
+     1. The fundamental actually heard: f_a = f with pitch lock, f_a = f·P(u_default)/P(u_s)
+        without.
+     2. Phase: φ_n = frac(φ_{n−1} + f_a/fs) with φ_{−1} = 0 (frac(v) = v − floor(v)), and
+        z = cos(2πφ_n) + i·sin(2πφ_n). The k-th power w_k = w_{k−1}·z, with w_0 = 1, is
+        computed by complex multiplication (a + ib)(c + id) = (ac − bd) + i(ad + bc).
+     3. Band k (k = 1 … K): the complex baseband signal r·conj(w_k) = (r·Re w_k, −r·Im w_k),
+        low-passed: each part goes through the same 4th-order Butterworth low-pass with
+        cut-off f_a/2. It is two biquad sections in transposed direct form II
+        (y = b0·x + s1; s1 = b1·x − a1·y + s2; s2 = b2·x − a2·y; zero initial state), from
+        the bilinear transform with prewarping: G = tan(π·(f_a/2)/fs), and for
+        Q ∈ {1/(2cos(π/8)), 1/(2cos(3π/8))} in that order, d = 1/(1 + G/Q + G²),
+        b0 = G²·d, b1 = 2·b0, b2 = b0, a1 = 2·(G² − 1)·d, a2 = (1 − G/Q + G²)·d. The
+        coefficients are recomputed whenever f_a differs from the previous sample's.
+        This gives c_k = (c_re, c_im).
+     4. Band statistics, both smoothed with the same coefficient: the power
+        p_k[n] = p_k[n−1] + β_n·(c_re² + c_im² − p_k[n−1]) and the complex amplitude
+        v_k[n] = v_k[n−1] + β_n·(c_k − v_k[n−1]) (real and imaginary parts separately),
+        with p_k[−1] = v_k[−1] = 0 and β_n = max(1 − exp(−1/(T_τ·fs)), 1/(n + 1)) (a running
+        mean at the start, then exponential). T_τ = 0.002·10^(3·τ_s) seconds: 2 ms at τ = 0
+        (the partials follow the attractor's fluctuations) up to 2 s at τ = 1 (steady
+        partials). n counts samples since the block's reset. β's exponential part and the
+        mix gains of item 7 are recomputed whenever τ_s changes.
+     5. Partial weight (stays below Nyquist): q_k = clip((0.45·fs − k·f_a)/(0.05·fs), 0, 1).
+     6. The tonal signal: each band becomes one partial with the band's smoothed power and
+        smoothed phase, t = Σ_k q_k · 2·√p_k · (Re v_k·Re w_k − Im v_k·Im w_k) / |v_k|, with
+        |v_k| = √(Re v_k² + Im v_k²); a term with |v_k| = 0 is 0. (A sine A·cos(kθ + ψ) comes
+        out unchanged. Following the band's own slowly varying phase, instead of a fixed
+        phase kθ, keeps the partials from beating against the raw signal; ADR 0015.)
+     7. Mix: m = (1 − τ_s)^0.75·r + τ_s^0.75·t. The exponent sits between equal amplitude
+        (exact for a coherent sum) and equal power (exact for an incoherent one); it keeps
+        the level of every v1 system within about ±1.2 dB.
+
+     Evaluate the sums and products left to right as written. When the `tonality` knob is 0
+     and no cable is connected, m = r and this step is skipped (the tonal state stays at its
+     reset value).
+   - Then y = g · m, with g from step 3, and the **DC blocker**
+     y_out[n] = y[n] − y[n−1] + R·y_out[n−1], with R = exp(−2π·5/fs), zero initial state and
+     flush-to-zero.
    - Mono puts `observable` on both channels; stereo puts `observable` on the left and
-     `observable_right` on the right.
+     `observable_right` on the right. Each channel has its own tonality state.
 8. **Safety.**
    - A reset happens if the state becomes non-finite, leaves the catalog's bounding box
      [`bounds.lo`, `bounds.hi`], or Δτ is non-finite or negative.
@@ -208,7 +252,9 @@ out = gain · Σ inputs (0 with nothing connected).
 | `in` | input (one cable) | audio | |
 | `volume` | knob | [0, 1] | 0.8 |
 
-- y = softclip(volume · in), where softclip(x) = x for |x| ≤ 0.9, and
+- y = softclip(v · in), with the perceptual curve of §4.2 step 3: v = volume^(1/(2·log₁₀2))
+  (halving the knob is −10 dB; the default 0.8 is a gain of 0.69). softclip(x) = x for
+  |x| ≤ 0.9, and
   sign(x)·(0.9 + 0.1·tanh((|x| − 0.9)/0.1)) otherwise. A NaN sample becomes 0, so a broken
   box never reaches the speakers.
 - **WAV export**: an offline render of a chosen length (default 10 s) at 48 kHz, stereo.
@@ -270,14 +316,16 @@ connected, out = 0. gain = 0.5 averages two inputs.
   engine.
 - **Live parameter changes** (real-time engines: `EnginePort.setParam`, or an `edit` with
   `op: "setParams"`, which behave identically; ADR 0014):
-  - Knobs (`param`, `amp`, `gain`, `volume`) and the pitch settings (`note`, `cents`,
+  - Knobs (`param`, `amp`, `tonality`, `gain`, `volume`) and the pitch settings (`note`, `cents`,
     `pitch_min`, `pitch_max`, `pitch_lock`, `amp_curve`) update inside the running block,
     which keeps its state.
-  - `param` and `amp` move through the step 2 smoothers. `gain`, `volume` and `amp_curve`
-    glide with the same one-pole as `amp` (5 ms); the glide snaps to its target within
-    1e-9, and a steady value is applied exactly (so renders without live changes are
-    bit-identical to the reference). For `amp_curve` the glide blends the two laws:
+  - `param`, `amp` and `tonality` move through the step 2 smoothers. `gain`, `volume` and
+    `amp_curve` glide with the same one-pole as `amp` (5 ms); the glide snaps to its target
+    within 1e-9, and a steady value is applied exactly (so renders without live changes are
+    bit-identical to the reference). For `volume` the curve is applied to the gliding
+    knob value. For `amp_curve` the glide blends the two laws:
     g = m·a_s^1.661 + (1 − m)·a_s, with m going from 1 to 0 or back.
+  - Turning `tonality` up from 0 live starts the tonal state from its reset value.
   - `note`, `cents`, `pitch_min`, `pitch_max` and `pitch_lock` take effect from the next
     chunk. They change only how fast the ODE runs, so they do not click.
   - Other settings (`system`, `observable`, `observable_right`, `seed`, modulator settings)

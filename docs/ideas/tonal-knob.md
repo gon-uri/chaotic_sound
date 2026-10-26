@@ -1,7 +1,8 @@
 # Idea: a "tonality" knob (raw attractor → tonal)
 
-- Status: **idea, prototyped offline** (2026-10-26). Not part of the spec yet. Proposed by the
-  owner; analysis and prototype by Claude.
+- Status: **implemented** (2026-10-26) as the `tonality` knob and input, default 0.3:
+  design D with phase tracking (spec v0.5 §4.2 step 7, ADR 0015). The owner chose design D,
+  the input and the default after reading this note. What follows is the original analysis.
 - Prototype: `lab/scripts/studies/tonal_prototype.py`. It writes WAVs and `metrics.md` to
   `lab/outputs/studies/tonal/`, with all five systems at A3 and τ = 0, 0.5, 1 for each method.
 
@@ -117,3 +118,13 @@ but the knob response is very uneven: it stays noisy until τ ≈ 0.9, then ring
 2. One knob (tonality) or two (tonality + brightness)?
 3. Should the knob also be a control input (to modulate tonality with an LFO)? It is easy, and
    very expressive.
+
+## Outcome (2026-10-26)
+
+The owner's answers: design D, also as a control input, default 0.3. While implementing it,
+the prototype's fixed-phase partials turned out to beat against the raw signal at
+intermediate settings (a 2–4 dB tremolo at 0.3). The implemented version lets each partial
+follow its band's smoothed phase, which removes the beating, and mixes with gains
+(1 − τ)^0.75 and τ^0.75 to keep the level within about ±1.2 dB. Details and measurements:
+ADR 0015. Still open: a "brightness" knob (question 2 above).
+

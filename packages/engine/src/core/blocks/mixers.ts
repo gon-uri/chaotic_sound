@@ -9,7 +9,7 @@
 import { Glide, softClip } from "../dsp/filters.ts";
 import { BLOCK_SPECS, defaultParam, type ParamValue } from "../patch.ts";
 import type { BlockContext, BlockRuntime, PortSignal } from "./block.ts";
-import { DECLICK_TIME_S } from "./dynamical.ts";
+import { AMP_EXPONENT, DECLICK_TIME_S } from "./dynamical.ts";
 
 /** A block's single knob as a gliding setting (`undefined` → its documented default). */
 function knob(type: "sum" | "control_sum" | "output", name: string, value: ParamValue | undefined) {
@@ -112,8 +112,9 @@ export class ControlSum implements BlockRuntime {
 }
 
 /**
- * The sink: main = softclip(volume · in); silence with nothing connected. A NaN sample
- * (a broken box) becomes 0 so it never reaches the speakers (spec §4.4).
+ * The sink: main = softclip(volume^1.661 · in), the perceptual curve of the amp knob
+ * (halving the volume is −10 dB); silence with nothing connected. A NaN sample (a broken
+ * box) becomes 0 so it never reaches the speakers (spec §4.4).
  */
 export class Output implements BlockRuntime {
   readonly type = "output" as const;
@@ -122,6 +123,8 @@ export class Output implements BlockRuntime {
   readonly main: PortSignal;
   readonly id: string;
   private readonly volume: Glide;
+  private lastKnob = Number.NaN;
+  private lastGain = 0;
   private readonly left: Float64Array;
   private readonly right: Float64Array;
 
@@ -154,7 +157,12 @@ export class Output implements BlockRuntime {
     const xr = x[1]!;
     const volume = this.volume;
     for (let i = 0; i < n; i++) {
-      const v = volume.next();
+      const knobValue = volume.next();
+      if (knobValue !== this.lastKnob) {
+        this.lastKnob = knobValue; // pow only when the knob moves
+        this.lastGain = knobValue ** AMP_EXPONENT;
+      }
+      const v = this.lastGain;
       const l = softClip(v * xl[i]!);
       const r = softClip(v * xr[i]!);
       this.left[i] = Number.isNaN(l) ? 0 : l;

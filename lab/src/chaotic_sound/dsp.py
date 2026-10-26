@@ -24,6 +24,16 @@ SOFT_CLIP_KNEE = 0.9
 """Below this absolute value the soft clipper is the identity (spec §4.4)."""
 FLUSH_TO_ZERO = 1e-30
 """Filter states smaller than this in magnitude are set to exactly 0."""
+AMP_EXPONENT = 1.0 / (2.0 * math.log10(2.0))
+"""Perceptual gain curve g = a^1.661: every halving of the knob is −10 dB (half as loud)."""
+
+TONAL_HARMONICS = 8
+"""Harmonics resynthesized by the tonality step (spec §4.2 step 7, ADR 0015)."""
+TONAL_Q = (1.0 / (2.0 * math.cos(math.pi / 8.0)), 1.0 / (2.0 * math.cos(3.0 * math.pi / 8.0)))
+"""Q of the two biquad sections of the 4th-order Butterworth band low-pass."""
+TONAL_MIX_EXPONENT = 0.75
+"""Mix law m = (1 − τ)^0.75·r + τ^0.75·t: between equal amplitude (right for coherent sums)
+and equal power (right for incoherent ones); keeps every v1 system within about ±1.2 dB."""
 
 
 def one_pole_coefficient(time_constant_s: float, sample_rate: float) -> float:
@@ -96,3 +106,101 @@ def soft_clip(x: NDArray[np.float64], knee: float = SOFT_CLIP_KNEE) -> NDArray[n
     width = 1.0 - knee
     y[over] = np.sign(x[over]) * (knee + width * np.tanh((ax[over] - knee) / width))
     return y
+
+
+def tonal_state(n_harmonics: int = TONAL_HARMONICS) -> tuple[np.ndarray, ...]:
+    """Fresh state of one tonality channel: (scalars, coefficients, filter memories, bands).
+
+    ``scalars`` = [φ, n, f_last, τ_last, β_env, raw gain, tonal gain]; NaN in f_last and
+    τ_last forces the first coefficient computation. ``bands`` holds, per harmonic k, the
+    smoothed power p_k and the smoothed complex amplitude v_k: [p, Re v, Im v] × K.
+    """
+    scalars = np.array([0.0, 0.0, np.nan, np.nan, 0.0, 0.0, 0.0])
+    return scalars, np.zeros(10), np.zeros(8 * n_harmonics), np.zeros(3 * n_harmonics)
+
+
+@njit(cache=True)
+def tonal(r, f_a, tau, fs, scalars, coef, filt, bands, q1, q2, mix_exp, out):  # type: ignore[no-untyped-def]
+    """Harmonic resynthesis (spec §4.2 step 7, "Tonality"), one channel, ``n = len(r)`` samples.
+
+    ``r`` is the level-normalized signal, ``f_a`` the fundamental actually heard (Hz) and
+    ``tau`` the smoothed tonality, all per sample. Each band k = [k − ½, k + ½]·f_a is moved
+    onto one partial with the band's smoothed power and smoothed phase. Writes
+    m = (1 − τ)^0.75·r + τ^0.75·t to ``out``. The operation order follows the spec
+    literally (it is mirrored by the TypeScript engine).
+    """
+    n_harm = bands.shape[0] // 3
+    two_pi = 2.0 * math.pi
+    for i in range(r.shape[0]):
+        f = f_a[i]
+        if f != scalars[2]:  # 4th-order Butterworth low-pass at f_a/2 (bilinear, prewarped)
+            g = math.tan(math.pi * (f * 0.5) / fs)
+            g2 = g * g
+            for j in range(2):
+                q = q1 if j == 0 else q2
+                d = 1.0 / (1.0 + g / q + g2)
+                b0 = g2 * d
+                coef[5 * j] = b0
+                coef[5 * j + 1] = 2.0 * b0
+                coef[5 * j + 2] = b0
+                coef[5 * j + 3] = 2.0 * (g2 - 1.0) * d
+                coef[5 * j + 4] = (1.0 - g / q + g2) * d
+            scalars[2] = f
+        t = tau[i]
+        if t != scalars[3]:
+            t_env = 0.002 * 10.0 ** (3.0 * t)
+            scalars[4] = 1.0 - math.exp(-1.0 / (t_env * fs))
+            scalars[5] = (1.0 - t) ** mix_exp
+            scalars[6] = t**mix_exp
+            scalars[3] = t
+        ph = scalars[0] + f / fs
+        ph = ph - math.floor(ph)
+        scalars[0] = ph
+        zr = math.cos(two_pi * ph)
+        zi = math.sin(two_pi * ph)
+        count = scalars[1]
+        beta = max(scalars[4], 1.0 / (count + 1.0))
+        scalars[1] = count + 1.0
+        x = r[i]
+        wr = 1.0
+        wi = 0.0
+        acc = 0.0
+        for k in range(n_harm):
+            nr = wr * zr - wi * zi
+            ni = wr * zi + wi * zr
+            wr = nr
+            wi = ni
+            c_re = 0.0
+            c_im = 0.0
+            for part in range(2):
+                y = x * wr if part == 0 else -(x * wi)
+                for j in range(2):
+                    m = 8 * k + 4 * part + 2 * j
+                    s1 = filt[m]
+                    s2 = filt[m + 1]
+                    b0 = coef[5 * j]
+                    b1 = coef[5 * j + 1]
+                    b2 = coef[5 * j + 2]
+                    a1 = coef[5 * j + 3]
+                    a2 = coef[5 * j + 4]
+                    yo = b0 * y + s1
+                    filt[m] = b1 * y - a1 * yo + s2
+                    filt[m + 1] = b2 * y - a2 * yo
+                    y = yo
+                if part == 0:
+                    c_re = y
+                else:
+                    c_im = y
+            pw = c_re * c_re + c_im * c_im
+            pk = bands[3 * k] + beta * (pw - bands[3 * k])
+            vr = bands[3 * k + 1] + beta * (c_re - bands[3 * k + 1])
+            vi = bands[3 * k + 2] + beta * (c_im - bands[3 * k + 2])
+            bands[3 * k] = pk
+            bands[3 * k + 1] = vr
+            bands[3 * k + 2] = vi
+            mag = math.sqrt(vr * vr + vi * vi)
+            if mag > 0.0:
+                w = (0.45 * fs - (k + 1.0) * f) / (0.05 * fs)
+                w = 0.0 if w < 0.0 else (1.0 if w > 1.0 else w)
+                acc += w * 2.0 * math.sqrt(pk) * (vr * wr - vi * wi) / mag
+        out[i] = scalars[5] * x + scalars[6] * acc

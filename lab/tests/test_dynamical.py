@@ -41,10 +41,16 @@ BIAS_CENTS = {"rossler": 1.0, "duffing": 1.0, "lorenz": 2.5, "chua": 5.0, "rikit
 SINGLE_CENTS = {"rossler": 2.0, "duffing": 2.0, "lorenz": 5.0, "chua": 11.0, "rikitake": 12.0}
 
 
-def seeds_cents(context, system: str, note: str, fs: int, n_seeds: int = 4) -> list[float]:
+def seeds_cents(
+    context, system: str, note: str, fs: int, n_seeds: int = 4, tonality: float = 0.0
+) -> list[float]:
+    """Pitch error per seed. tonality=0 by default: this measures the catalog's tuning of the
+    raw signal (time rescaling); the tonality mix has its own test (test_tonality.py)."""
     result = []
     for seed in range(n_seeds):
-        block = Dynamical("osc", context=context, system=system, note=note, seed=seed)
+        block = Dynamical(
+            "osc", context=context, system=system, note=note, seed=seed, tonality=tonality
+        )
         seconds = 0.5 + 2000 / block.frequency_hz  # ≥ 2000 cycles, like the catalog analysis
         result.append(pitch_cents(block, run(block, seconds, chunk=8192, fs=fs)[fs // 2 :, 0], fs))
     return result
@@ -67,7 +73,11 @@ def test_loudness_is_normalized_across_the_range(
     context: BlockContext, system: str, u: float
 ) -> None:
     for obs in Dynamical("probe", context=context, system=system).system.audio_variables:
-        block = Dynamical("osc", context=context, system=system, param=u, observable=obs)
+        # tonality=0: this checks the level normalization of the raw signal (spec §4.2 step 7);
+        # the tonality mix is tested in test_tonality.py.
+        block = Dynamical(
+            "osc", context=context, system=system, param=u, observable=obs, tonality=0.0
+        )
         x = run(block, 1.5)[FS // 4 :, 0]
         e = block.entry
         expected = min(RMS_TARGET, PEAK_TARGET * float(e.std(obs, u) / e.peak(obs, u)))
@@ -114,9 +124,9 @@ def test_param_slew_is_at_least_two_periods(context: BlockContext) -> None:
     seen = {}
 
     class Spy(Dynamical):
-        def _audio(self, traj, observable, u, gain):  # type: ignore[override]
+        def _normalized(self, traj, observable, u):  # type: ignore[override]
             seen.setdefault("u", []).append(u.copy())
-            return super()._audio(traj, observable, u, gain)
+            return super()._normalized(traj, observable, u)
 
     for note in ("A1", "A5"):
         seen.clear()
@@ -191,10 +201,11 @@ def test_deterministic_and_seeded(context: BlockContext) -> None:
 def test_pitch_lock_keeps_the_note_while_the_parameter_moves(context: BlockContext) -> None:
     # Lorenz: P(u) changes by almost an octave across the range.
     for u in (0.1, 0.9):
-        locked = Dynamical("osc", context=context, system="lorenz", note="A3", param=u)
-        free = Dynamical(
-            "osc", context=context, system="lorenz", note="A3", param=u, pitch_lock=False
-        )
+        # tonality=0: the raw signal's pitch (the tonality mix follows it, test_tonality.py).
+        locked = Dynamical("osc", context=context, system="lorenz", note="A3", param=u,
+                           tonality=0.0)  # fmt: skip
+        free = Dynamical("osc", context=context, system="lorenz", note="A3", param=u,
+                         pitch_lock=False, tonality=0.0)  # fmt: skip
         f_locked = measure_pitch(run(locked, 6.0)[FS // 2 :, 0], FS, "peak_centroid", 220)
         f_free = measure_pitch(run(free, 6.0)[FS // 2 :, 0], FS, "peak_centroid", 220)
         e = locked.entry
