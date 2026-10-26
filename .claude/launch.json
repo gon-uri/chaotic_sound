@@ -24,6 +24,21 @@
         "--strictPort"
       ],
       "port": 5174
+    },
+    {
+      "name": "web-dist",
+      "runtimeExecutable": "/Users/uribarri/.local/node/bin/node",
+      "runtimeArgs": [
+        "node_modules/vite/bin/vite.js",
+        "preview",
+        "apps/web",
+        "--base",
+        "/chaotic_sound/",
+        "--port",
+        "4180",
+        "--strictPort"
+      ],
+      "port": 4180
     }
   ]
 }
