@@ -21,6 +21,8 @@ Goal: prove that "tuned chaos" works and sounds interesting before building any 
 - [x] Owner's review, round 1: single-cable inputs + Control Sum, perceptual amp, pitch input,
       playable ranges, Thomas → Rikitake (ADRs 0011–0013).
 - [x] Code review: 55 findings fixed, spec v0.3 pins every formula.
+- [x] Owner's review, rounds 2–3: tonality knob and input (harmonic resynthesis, default 0.3,
+      ADR 0015) and perceptual Output volume (spec v0.5).
 - [ ] Listening tests by the owner (does the measured pitch match the perceived one?).
 
 ## Phase 2: TypeScript engine ✅ (2026-10-26)
@@ -31,7 +33,8 @@ Goal: prove that "tuned chaos" works and sounds interesting before building any 
       ≤ 3e-13.
 - [x] Adapters: Node CLI renderer + WAV, AudioWorklet processor, offline renderer.
 - [x] A developer playground (`apps/playground`) to hear the patches live in the browser.
-- [ ] Independent review of the TS engine and its fixes (in progress).
+- [x] Independent review of the TS engine; fixes in spec v0.4 (ADR 0014). Follow-up tests,
+      golden fixtures and per-system kernels in progress.
 - [x] Offline rendering in a Web Worker (`adapters/worker/`): WAV export off the UI thread,
       10 s in about 0.3 s in the browser.
 - [x] CI workflow (`.github/workflows/ci.yml`): both test suites, on pull requests and on
@@ -58,10 +61,10 @@ Goal: prove that "tuned chaos" works and sounds interesting before building any 
 
 ## Future ideas (recorded at the owner's request)
 
-- **Tonality knob** (owner's idea, 2026-10-26): from 0 (raw attractor) to 1 (tonal). The tonal
-  part is built from the attractor's own spectrum so it stays unique to each system.
-  Prototyped offline; harmonic resynthesis (design D) is the recommended core. See
-  `docs/ideas/tonal-knob.md`.
+- **Brightness knob** for the tonality resynthesis (re-weight the harmonics); see
+  `docs/ideas/tonal-knob.md`. The tonality knob itself is done (ADR 0015).
+- **Standalone "Harmonizer" box**: the tonality DSP as an effect for any audio, with its own
+  note setting.
 - **Route to chaos**: let the parameter range include periodic regimes and period-doubling
   cascades. Open question: how to tune there. A likely answer is to lock to the mean loop time
   (return time to a Poincaré section). That stays continuous through period doubling, so the

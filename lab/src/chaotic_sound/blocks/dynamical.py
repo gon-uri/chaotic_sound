@@ -6,7 +6,8 @@ Per sample:
 2. turn the pitch into a frequency f (note + cents, or the pitch input);
 3. map the knob u to the system parameter and set the time scale k = P(u)·f (pitch lock);
 4. advance the ODE by k/fs system-time units with RK4 sub-steps;
-5. turn the heard variable into audio with a normalized level and a perceptual amp curve.
+5. turn the heard variable into a level-normalized signal, make it more harmonic by the
+   ``tonality`` amount (harmonic resynthesis, ADR 0015), and apply the perceptual amp curve.
 """
 
 from __future__ import annotations
@@ -30,11 +31,16 @@ from chaotic_sound.blocks.base import (
 )
 from chaotic_sound.catalog import CatalogEntry
 from chaotic_sound.dsp import (
+    AMP_EXPONENT,
+    TONAL_MIX_EXPONENT,
+    TONAL_Q,
     dc_block,
     dc_block_coefficient,
     one_pole,
     one_pole_coefficient,
     one_pole_varying,
+    tonal,
+    tonal_state,
 )
 from chaotic_sound.integrate import render_tuned
 from chaotic_sound.pitch import NOTE_MAX, NOTE_MIN, midi_to_hz, note_to_hz, note_to_midi
@@ -53,8 +59,8 @@ DC_BLOCK_HZ = 5.0
 """Cut-off of the output DC blocker (spec §4.2 step 6)."""
 IC_PERTURBATION = 1e-6
 """Relative size of the seeded initial-condition perturbation (spec §4.2 step 9)."""
-AMP_EXPONENT = 1.0 / (2.0 * math.log10(2.0))
-"""Perceptual amp curve g = a^1.661: every halving of a is −10 dB, i.e. half as loud."""
+TONALITY_DEFAULT = 0.3
+"""Default tonality: mostly the raw attractor, noticeably more pitched (owner's choice)."""
 AMP_CURVES = ("perceptual", "linear")
 SEED_LIMIT = 2**31
 
@@ -79,6 +85,7 @@ class DynamicalParams(BlockParams):
     seed: int | None = None
     param: float | None = None
     amp: float = 1.0
+    tonality: float = TONALITY_DEFAULT
 
     def __post_init__(self) -> None:
         self.check_types()
@@ -106,6 +113,7 @@ class DynamicalParams(BlockParams):
         if self.param is not None:
             _check_unit("param", self.param)
         _check_unit("amp", self.amp)
+        _check_unit("tonality", self.tonality)
 
 
 class Dynamical(Block):
@@ -127,6 +135,7 @@ class Dynamical(Block):
         Port("param", SignalType.CONTROL),
         Port("amp", SignalType.CONTROL),
         Port("pitch", SignalType.CONTROL),
+        Port("tonality", SignalType.CONTROL),
     )
     OUTPUTS = (Port("out", SignalType.AUDIO),)
     params: DynamicalParams
@@ -177,6 +186,8 @@ class Dynamical(Block):
         self._a_state = np.zeros(1)  # amp starts at 0: every box fades in over a few ms
         self._dc_r = dc_block_coefficient(DC_BLOCK_HZ, self.sample_rate)
         self._dc_state = np.zeros((2, 2))
+        self._t_state: np.ndarray | None = None  # tonality smoother: first control value
+        self._tonal_states = [tonal_state(), tonal_state()]  # one per channel (spec §4.2 step 7)
         self._period_unlocked = float(self.entry.period(self.entry.u_default))
         self.resets = 0
 
@@ -194,11 +205,20 @@ class Dynamical(Block):
         midi = self.midi_min + q * (self.midi_max - self.midi_min)
         return 440.0 * 2.0 ** ((midi - 69.0) / 12.0)
 
-    def _audio(self, traj: Signal, observable: str, u: Signal, gain: Signal) -> Signal:
+    def _normalized(self, traj: Signal, observable: str, u: Signal) -> Signal:
+        """R = s(u)·(x_obs − μ(u)), s(u) = min(0.25/σ(u), 0.8/π(u)) (spec §4.2 step 7)."""
         e = self.entry
         i = self.system.variable_index(observable)
         scale = np.minimum(RMS_TARGET / e.std(observable, u), PEAK_TARGET / e.peak(observable, u))
-        return gain * scale * (traj[:, i] - e.mean(observable, u))
+        return scale * (traj[:, i] - e.mean(observable, u))
+
+    def _tonal(self, r: Signal, f_a: Signal, tau: Signal, channel: int) -> Signal:
+        """Mix one channel: m = (1 − τ)^0.75·r + τ^0.75·t (spec §4.2 step 7)."""
+        out = np.empty_like(r)
+        scalars, coef, filt, bands = self._tonal_states[channel]
+        tonal(r, f_a, tau, self.sample_rate, scalars, coef, filt, bands, *TONAL_Q,
+              TONAL_MIX_EXPONENT, out)  # fmt: skip
+        return out
 
     def process(self, n: int, inputs: Mapping[str, Signal | None]) -> dict[str, Signal]:
         """Next ``n`` samples of stereo audio (spec §4.2 steps 1–9)."""
@@ -207,6 +227,7 @@ class Dynamical(Block):
         u_in = check_signal("param", inputs.get("param"), n)
         a_in = check_signal("amp", inputs.get("amp"), n)
         q_in = check_signal("pitch", inputs.get("pitch"), n)
+        t_in = check_signal("tonality", inputs.get("tonality"), n)
 
         freq = self._frequency(n, q_in)
         u_raw = np.full(n, self.knob_param) if u_in is None else u_in
@@ -235,10 +256,24 @@ class Dynamical(Block):
             )
         )  # fmt: skip
 
-        left = self._audio(traj, self.observable, u, gain)
-        right = left if self.observable_right is None else self._audio(
-            traj, self.observable_right, u, gain
-        )  # fmt: skip
+        # Tonality: smoothed like amp, but it starts at its first value (no initial glide).
+        t_raw = np.full(n, self.params.tonality) if t_in is None else t_in
+        if self._t_state is None:
+            self._t_state = np.array([t_raw[0]])
+        tau = np.empty(n)
+        one_pole(t_raw, self._t_state, self._alpha, tau)
+        tonal_on = t_in is not None or self.params.tonality > 0.0
+        f_a = freq if self.params.pitch_lock else freq * self._period_unlocked / entry.period(u)
+
+        r_left = self._normalized(traj, self.observable, u)
+        m_left = self._tonal(r_left, f_a, tau, 0) if tonal_on else r_left
+        left = gain * m_left
+        if self.observable_right is None:
+            right = left
+        else:
+            r_right = self._normalized(traj, self.observable_right, u)
+            m_right = self._tonal(r_right, f_a, tau, 1) if tonal_on else r_right
+            right = gain * m_right
         out = np.empty((n, 2))
         dc_block(left, self._dc_state[0], self._dc_r, out[:, 0])
         dc_block(right, self._dc_state[1], self._dc_r, out[:, 1])

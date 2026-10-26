@@ -31,7 +31,8 @@
         "pitch_max": "A5",
         "pitch_lock": true,
         "amp_curve": "perceptual",
-        "amp": 1.0
+        "amp": 1.0,
+        "tonality": 0.3
       }
     },
     {
@@ -45,7 +46,8 @@
         "pitch_max": "A5",
         "pitch_lock": true,
         "amp_curve": "perceptual",
-        "amp": 1.0
+        "amp": 1.0,
+        "tonality": 0.3
       }
     },
     {

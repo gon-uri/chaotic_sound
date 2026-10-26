@@ -22,7 +22,8 @@
         "pitch_max": "A5",
         "pitch_lock": true,
         "amp_curve": "perceptual",
-        "amp": 0.9
+        "amp": 0.9,
+        "tonality": 0.3
       }
     },
     {
@@ -36,7 +37,8 @@
         "pitch_max": "A5",
         "pitch_lock": true,
         "amp_curve": "perceptual",
-        "amp": 0.8
+        "amp": 0.8,
+        "tonality": 0.3
       }
     },
     {
@@ -50,7 +52,8 @@
         "pitch_max": "A5",
         "pitch_lock": true,
         "amp_curve": "perceptual",
-        "amp": 0.8
+        "amp": 0.8,
+        "tonality": 0.3
       }
     },
     {
@@ -64,7 +67,8 @@
         "pitch_max": "A5",
         "pitch_lock": true,
         "amp_curve": "perceptual",
-        "amp": 0.7
+        "amp": 0.7,
+        "tonality": 0.3
       }
     },
     {
@@ -78,7 +82,8 @@
         "pitch_max": "A5",
         "pitch_lock": true,
         "amp_curve": "perceptual",
-        "amp": 0.7
+        "amp": 0.7,
+        "tonality": 0.3
       }
     },
     {

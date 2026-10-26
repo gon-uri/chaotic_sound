@@ -1,6 +1,6 @@
 /** One React Flow node component per box type (spec §4). */
 
-import { type BlockJson, getSystem, shapeValue } from "@chaotic-sound/engine";
+import { type BlockJson, defaultParam, getSystem, shapeValue } from "@chaotic-sound/engine";
 import type { NodeProps } from "@xyflow/react";
 import type { ReactNode } from "react";
 import { play, stop, useAudioStore } from "../audio/engineBridge.ts";
@@ -48,6 +48,9 @@ export function DynamicalBox({ id, data, selected }: BoxProps): ReactNode {
   );
   const resets = useAudioStore((s) => s.diagnostics[id]?.safety_resets ?? 0);
   const symbol = PARAM_SYMBOLS[entry.param] ?? entry.param;
+  const tonality =
+    (param(b, "tonality") as number | undefined) ??
+    (defaultParam("dynamical", "tonality") as number);
   return (
     <BoxFrame type="dynamical" id={id} selected={selected} title={getSystem(system).displayName}>
       <Select
@@ -84,6 +87,12 @@ export function DynamicalBox({ id, data, selected }: BoxProps): ReactNode {
         label={t.amp}
         value={(param(b, "amp") as number | undefined) ?? 1}
         onChange={(v) => set("amp", v)}
+      />
+      <Knob
+        label={t.tonality}
+        value={tonality}
+        display={`${Math.round(tonality * 100)}%`}
+        onChange={(v) => set("tonality", v)}
       />
       <Select
         label={t.observable}

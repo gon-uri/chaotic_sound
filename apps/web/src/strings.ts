@@ -31,6 +31,7 @@ export const t = {
   cents: "Cents",
   parameter: "Parameter",
   amp: "Amp",
+  tonality: "Tonality",
   pitchLock: "Pitch lock",
   perceptualAmp: "Perceptual amp",
   observable: "Heard variable",

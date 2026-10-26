@@ -22,6 +22,7 @@ export {
   type BlockJson,
   type BlockType,
   type CableJson,
+  defaultParam,
   diffPatch,
   isBlockType,
   normalizePatch,
@@ -33,6 +34,7 @@ export {
   type PortSpec,
   splitRef,
   validateParams,
+  withDefaults,
 } from "./core/patch.ts";
 export { type AttractorPoints, attractorPoints } from "./core/trajectory.ts";
 export type { Diagnostics, EnginePort } from "./ports.ts";

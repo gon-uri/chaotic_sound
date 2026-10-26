@@ -8,8 +8,9 @@ musicians curious about math.
 
 ## Status
 
-- Phase 1 is done: the Python reference engine, analysis and catalog v2 in `lab/` (engine
-  v0.3).
+- Phase 1 is done: the Python reference engine, analysis and catalog v2 in `lab/`. The spec is
+  v0.5: tonality knob and input (ADR 0015), perceptual Output volume, live-edit rules (ADR
+  0014).
 - Phase 2 is done for the engine: the TypeScript engine in `packages/engine/`, verified
   against the golden vectors and run live in the browser through `apps/playground/`.
 - Phase 3 has started: the editor MVP in `apps/web/` (React + React Flow + Zustand), and

@@ -28,6 +28,7 @@ When Claude makes a decision while the owner is away, it is written as *Proposed
 | [0012](0012-playable-ranges-and-rikitake.md) | Playable ranges: stability and musicality first; default mid-range; Rikitake replaces Thomas | Accepted |
 | [0013](0013-controls-v03.md) | Single-cable inputs + Control Sum, perceptual amp, pitch input, slew, peak-limited level | Accepted |
 | [0014](0014-live-edits-and-robustness.md) | One live-edit path, atomic loads/edits, gliding gain/volume, NaN guards (spec v0.4) | Proposed |
+| [0015](0015-tonality-harmonic-resynthesis.md) | Tonality knob and input: phase-tracked harmonic resynthesis, default 0.3 (spec v0.5) | Accepted |
 
 Template:
 
