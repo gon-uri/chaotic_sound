@@ -23,7 +23,7 @@ class OutputParams(BlockParams):
 
 
 class Output(Block):
-    """The patch's sink: ``main = softclip(volume · in)``.
+    """The patch's sink: ``main = softclip(volume · in)``, with NaN samples set to 0.
 
     It has no output port (nothing can be cabled from it); the patch reads its ``"main"``
     signal as the rendered audio. With nothing connected it outputs silence (a valid patch).
@@ -44,4 +44,6 @@ class Output(Block):
         x = inputs.get("in")
         if x is None:
             return {"main": np.zeros((n, 2))}
-        return {"main": soft_clip(self.params.volume * x)}
+        y = soft_clip(self.params.volume * x)
+        # A NaN sample (a broken box) becomes 0 so it never reaches the speakers (spec §4.4).
+        return {"main": np.where(np.isnan(y), 0.0, y)}

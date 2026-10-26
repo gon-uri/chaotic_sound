@@ -42,54 +42,77 @@ export class Engine implements EnginePort {
     return this.doc;
   }
 
+  /**
+   * Replace the patch. Atomic: if the patch, the catalog or the sample rate is invalid, it
+   * throws and the engine keeps playing the previous patch unchanged.
+   */
   load(patch: PatchDocument, catalog: CatalogDocument | Catalog, sampleRate: number): void {
     if (!(Number.isFinite(sampleRate) && sampleRate > 0)) {
       throw new RangeError(`sampleRate must be a positive number, got ${sampleRate}`);
     }
-    this.catalog = catalog instanceof Catalog ? catalog : new Catalog(catalog);
-    this.sampleRate = sampleRate;
-    this.blocks = new Map();
-    this.blockKeys = new Map();
-    this.install(normalizePatch(patch), true);
-  }
-
-  edit(e: PatchEdit): void {
-    if (this.doc === null) throw new PatchError("no patch loaded");
-    this.install(applyEdit(this.doc, e), false);
+    const cat = catalog instanceof Catalog ? catalog : new Catalog(catalog);
+    this.install(normalizePatch(patch), cat, sampleRate, false);
   }
 
   /**
-   * Change one parameter. Knobs (param, amp, gain, volume) and pitch settings are applied
-   * live inside the existing block, which keeps its state; anything else recreates the block.
+   * Apply a structural edit. Blocks that the edit does not touch keep their state. A
+   * `setParams` edit that only changes live settings (knobs, pitch settings) is applied
+   * inside the running block, exactly like {@link setParam}. Atomic, like {@link load}.
+   */
+  edit(e: PatchEdit): void {
+    if (this.doc === null || this.catalog === null) throw new PatchError("no patch loaded");
+    if (e.op === "setParams" && this.setLive(e.id, e.params)) return;
+    this.install(applyEdit(this.doc, e), this.catalog, this.sampleRate, true);
+  }
+
+  /**
+   * Change one parameter (spec §6). Knobs (param, amp, gain, volume) and pitch settings are
+   * applied live inside the running block, which keeps its state; any other setting
+   * recreates the block. `null` restores the default.
    */
   setParam(blockId: string, name: string, value: ParamValue | null): void {
-    const doc = this.doc;
-    if (doc === null) throw new PatchError("no patch loaded");
-    const index = doc.blocks.findIndex((b) => b.id === blockId);
-    const entry = doc.blocks[index];
-    const block = this.blocks.get(blockId);
-    if (entry === undefined || block === undefined) {
-      throw new PatchError(`no block with id ${JSON.stringify(blockId)}`);
-    }
-    const params: Record<string, ParamValue | null> = { ...(entry.params ?? {}), [name]: value };
-    const clean = validateParams(blockId, entry.type, params); // throws on invalid values
-    if (block.setParam?.(name, clean[name]) === true) {
-      const updated: BlockJson = { ...entry, params: clean };
-      const blocks = doc.blocks.slice();
-      blocks[index] = updated;
-      this.doc = { ...doc, blocks };
-      this.blockKeys.set(blockId, blockKey(updated));
-      return;
-    }
     this.edit({ op: "setParams", id: blockId, params: { [name]: value } });
   }
 
   /**
-   * Build blocks for `doc` (reusing unchanged ones, which keep their state) and compile.
-   * Nothing is committed if validation fails.
+   * Try to apply `params` inside the running block. Returns false (changing nothing) when a
+   * setting needs a new block. Throws PatchError on an invalid value, changing nothing.
    */
-  private install(doc: PatchDocument, resetAll: boolean): void {
-    const catalog = this.catalog!;
+  private setLive(blockId: string, params: Readonly<Record<string, ParamValue | null>>): boolean {
+    const doc = this.doc!;
+    const index = doc.blocks.findIndex((b) => b.id === blockId);
+    const entry = doc.blocks[index];
+    const block = this.blocks.get(blockId);
+    if (entry === undefined || block === undefined || block.setParam === undefined) return false;
+    const old = (entry.params ?? {}) as Record<string, ParamValue>;
+    const clean = validateParams(blockId, entry.type, { ...old, ...params }); // throws if invalid
+    const names = Object.keys(params).filter((k) => clean[k] !== old[k]);
+    const applied: string[] = [];
+    try {
+      for (const name of names) {
+        if (!block.setParam(name, clean[name])) {
+          rollback(block, applied, old);
+          return false; // e.g. `system` or `seed`: the caller recreates the block
+        }
+        applied.push(name);
+      }
+    } catch (error) {
+      rollback(block, applied, old); // e.g. a note above Nyquist: keep the old settings
+      throw error;
+    }
+    const updated: BlockJson = { ...entry, params: clean };
+    const blocks = doc.blocks.slice();
+    blocks[index] = updated;
+    this.doc = { ...doc, blocks };
+    this.blockKeys.set(blockId, blockKey(updated));
+    return true;
+  }
+
+  /**
+   * Build blocks for `doc` (reusing unchanged ones when `reuse`, which keep their state),
+   * compile the graph and reset the new blocks. Nothing is committed unless all succeed.
+   */
+  private install(doc: PatchDocument, catalog: Catalog, sampleRate: number, reuse: boolean): void {
     const ctx = { catalog, maxFrames: this.maxFrames };
     const next = new Map<string, BlockRuntime>();
     const keys = new Map<string, string>();
@@ -97,7 +120,7 @@ export class Engine implements EnginePort {
     for (const b of doc.blocks) {
       const key = blockKey(b);
       const old = this.blocks.get(b.id);
-      if (!resetAll && old !== undefined && this.blockKeys.get(b.id) === key) {
+      if (reuse && old !== undefined && this.blockKeys.get(b.id) === key) {
         next.set(b.id, old);
       } else {
         const block = createBlock(b, ctx);
@@ -107,7 +130,9 @@ export class Engine implements EnginePort {
       keys.set(b.id, key);
     }
     const graph = compileGraph(doc, next, this.maxFrames);
-    for (const block of fresh) block.reset(this.sampleRate);
+    for (const block of fresh) block.reset(sampleRate); // new objects: safe if one throws
+    this.catalog = catalog;
+    this.sampleRate = sampleRate;
     this.doc = doc;
     this.blocks = next;
     this.blockKeys = keys;
@@ -125,18 +150,24 @@ export class Engine implements EnginePort {
       right.fill(0, 0, frames);
       return;
     }
-    const [mainL, mainR] = graph.sink.main!;
+    // Indexed loops over preallocated arrays: nothing here allocates (real-time safety).
+    const steps = graph.steps;
+    const main = graph.sink.main!;
+    const mainL = main[0]!;
+    const mainR = main[1]!;
     let pos = 0;
     while (pos < frames) {
       const n = Math.min(this.maxFrames, frames - pos);
-      for (const block of graph.order) {
-        const wiring = graph.inputs.get(block.id)!;
-        const ins = wiring.map((w) => prepareInput(w, n));
-        block.process(n, ins);
+      for (let s = 0; s < steps.length; s++) {
+        const step = steps[s]!;
+        const wiring = step.wiring;
+        const ins = step.inputs;
+        for (let j = 0; j < wiring.length; j++) ins[j] = prepareInput(wiring[j]!, n);
+        step.block.process(n, ins);
       }
       for (let i = 0; i < n; i++) {
-        left[pos + i] = mainL![i]!;
-        right[pos + i] = mainR![i]!;
+        left[pos + i] = mainL[i]!;
+        right[pos + i] = mainR[i]!;
       }
       pos += n;
     }
@@ -161,6 +192,12 @@ export class Engine implements EnginePort {
   }
 }
 
+/** Undo live changes already applied to `block` (their old values were valid). */
+function rollback(block: BlockRuntime, names: readonly string[], old: Record<string, ParamValue>) {
+  for (const name of names) block.setParam?.(name, old[name]);
+}
+
+/** Identity of a block's settings: a block is reused only while this stays the same. */
 function blockKey(b: BlockJson): string {
   const params = b.params ?? {};
   const sorted = Object.keys(params)

@@ -5,6 +5,7 @@
 
 import type { CatalogDocument } from "../core/catalog.ts";
 import { Engine } from "../core/engine.ts";
+import { roundHalfEven } from "../core/numeric.ts";
 import type { PatchDocument } from "../core/patch.ts";
 import type { Diagnostics } from "../ports.ts";
 
@@ -30,7 +31,11 @@ export function renderOffline(
   options: OfflineOptions = {},
 ): OfflineResult {
   const sampleRate = options.sampleRate ?? 48_000;
-  const frames = options.frames ?? Math.round((options.seconds ?? 10) * sampleRate);
+  // Same rounding as the reference (Python's round(): ties to even).
+  const frames = options.frames ?? roundHalfEven((options.seconds ?? 10) * sampleRate);
+  if (!(Number.isInteger(frames) && frames >= 0)) {
+    throw new RangeError(`render length must be a whole number of frames ≥ 0, got ${frames}`);
+  }
   const engine = new Engine({ maxFrames: options.blockSize ?? 512 });
   engine.load(patch, catalog, sampleRate);
   const left = new Float64Array(frames);

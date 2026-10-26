@@ -3,12 +3,10 @@
  * 16-bit PCM rounds like the Python reference (round half to even, after clipping).
  */
 
-export type WavFormat = "pcm16" | "float32";
+import { roundHalfEven } from "../core/numeric.ts";
 
-function roundHalfEven(x: number): number {
-  const r = Math.round(x);
-  return Math.abs(x % 1) === 0.5 && r % 2 !== 0 ? r - 1 : r;
-}
+export type WavFormat = "pcm16" | "float32";
+export const WAV_FORMATS: readonly WavFormat[] = ["pcm16", "float32"];
 
 /** Encode stereo float samples as a RIFF/WAVE file. */
 export function encodeWav(
@@ -26,7 +24,7 @@ export function encodeWav(
   const ascii = (offset: number, s: string): void => {
     for (let i = 0; i < s.length; i++) v.setUint8(offset + i, s.charCodeAt(i));
   };
-  const rate = Math.round(sampleRate);
+  const rate = roundHalfEven(sampleRate); // Python: round(sample_rate)
   ascii(0, "RIFF");
   v.setUint32(4, 36 + dataBytes, true);
   ascii(8, "WAVE");

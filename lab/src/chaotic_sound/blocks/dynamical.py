@@ -185,6 +185,7 @@ class Dynamical(Block):
     def _frequency(self, n: int, q_in: Signal | None) -> Signal:
         """Per-sample frequency (Hz): the note, or the smoothed pitch input (spec §4.2 step 3)."""
         if q_in is None:
+            self._q_state = None  # a pitch cable connected later starts from its first value
             return np.full(n, self.frequency_hz)
         if self._q_state is None:
             self._q_state = np.array([q_in[0]])
@@ -241,10 +242,17 @@ class Dynamical(Block):
         out = np.empty((n, 2))
         dc_block(left, self._dc_state[0], self._dc_r, out[:, 0])
         dc_block(right, self._dc_state[1], self._dc_r, out[:, 1])
+        if not np.all(np.isfinite(self._dc_state)):
+            # Defense in depth: a non-finite sample would stay in the blocker's memory forever.
+            self._dc_state[:] = 0.0
+            self.resets += 1
         return {"out": out}
 
     def diagnostics(self) -> dict[str, int]:
-        """Safety resets during the current render (should stay 0)."""
+        """Safety resets during the current render (should stay 0).
+
+        Counts ODE resets (spec §4.2 step 8) and recoveries of a non-finite DC-blocker state.
+        """
         return {"safety_resets": self.resets}
 
     def substeps_per_sample(self, u: float | None = None, frequency_hz: float | None = None) -> int:

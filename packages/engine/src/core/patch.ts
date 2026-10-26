@@ -131,6 +131,27 @@ export const BLOCK_SPECS: Readonly<Record<BlockType, BlockSpec>> = {
   },
 };
 
+/**
+ * The documented default of a parameter (spec §4), or `undefined` when the default depends
+ * on context: `param` (the catalog's default knob position), `observable` (the catalog's
+ * default variable), `observable_right` (mono) and `seed` (derived from the block id).
+ */
+export function defaultParam(type: BlockType, name: string): ParamValue | undefined {
+  return BLOCK_SPECS[type].params[name]?.default;
+}
+
+/** `params` with every documented default filled in (BLOCK_SPECS is the single source). */
+export function withDefaults(
+  type: BlockType,
+  params: Readonly<Record<string, ParamValue>>,
+): Record<string, ParamValue> {
+  const out: Record<string, ParamValue> = { ...params };
+  for (const [name, spec] of Object.entries(BLOCK_SPECS[type].params)) {
+    if (out[name] === undefined && spec.default !== undefined) out[name] = spec.default;
+  }
+  return out;
+}
+
 export function isBlockType(t: unknown): t is BlockType {
   return typeof t === "string" && Object.hasOwn(BLOCK_SPECS, t);
 }

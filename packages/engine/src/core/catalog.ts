@@ -149,22 +149,31 @@ export class CatalogEntry {
     return interp(clip01(u), this.uGrid, this.periodTable);
   }
 
-  private table(observable: string): ObservableTable {
+  /** The tables of one audible variable (look them up once, outside per-sample loops). */
+  tables(observable: string): ObservableTable {
     const t = this.observables.get(observable);
     if (t === undefined) throw new CatalogError(`${this.name} has no tables for ${observable}`);
     return t;
   }
 
+  /** Value of a table on `u_grid` at knob position u (clipped to [0, 1]). */
+  at(table: Float64Array, u: number): number {
+    return interp(clip01(u), this.uGrid, table);
+  }
+
+  /** μ(u): mean of `observable`. */
   mean(observable: string, u: number): number {
-    return interp(clip01(u), this.uGrid, this.table(observable).mean);
+    return this.at(this.tables(observable).mean, u);
   }
 
+  /** σ(u): standard deviation of `observable`. */
   std(observable: string, u: number): number {
-    return interp(clip01(u), this.uGrid, this.table(observable).std);
+    return this.at(this.tables(observable).std, u);
   }
 
+  /** π(u): robust peak (99.9th percentile of |x − μ|) of `observable`. */
   peak(observable: string, u: number): number {
-    return interp(clip01(u), this.uGrid, this.table(observable).peak);
+    return this.at(this.tables(observable).peak, u);
   }
 
   /** Throw if this entry does not fit `system` (dimensions, parameter, observables, grid). */
@@ -188,7 +197,23 @@ export class CatalogEntry {
     let increasing = g.length >= 2 && g[0] === 0 && g[g.length - 1] === 1;
     for (let i = 1; i < g.length && increasing; i++) increasing = g[i]! > g[i - 1]!;
     if (!increasing) problems.push("u_grid must increase strictly from 0 to 1");
-    if (this.periodTable.length !== g.length) problems.push("period table does not match u_grid");
+    if (!this.observables.has(this.defaultObservable)) {
+      problems.push(`default observable ${this.defaultObservable} has no table`);
+    }
+    const tables = [this.periodTable];
+    for (const t of this.observables.values()) tables.push(t.mean, t.std, t.peak, t.prominence);
+    if (tables.some((t) => t.length !== g.length)) problems.push("a table does not match u_grid");
+    // Level normalization divides by σ and π: they must be finite and positive.
+    for (const [name, t] of this.observables) {
+      const ok = (a: Float64Array, positive: boolean): boolean =>
+        a.every((v) => Number.isFinite(v) && (!positive || v > 0));
+      if (!(ok(t.mean, false) && ok(t.std, true) && ok(t.peak, true))) {
+        problems.push(`tables of ${name} must be finite, with std and peak > 0`);
+      }
+    }
+    if (!this.periodTable.every((v) => Number.isFinite(v) && v > 0)) {
+      problems.push("period table must be finite and positive");
+    }
     if (!(this.pMin < this.pMax && this.pMin <= this.pDefault && this.pDefault <= this.pMax)) {
       problems.push("p_min < p_max and p_min ≤ p_default ≤ p_max are required");
     }

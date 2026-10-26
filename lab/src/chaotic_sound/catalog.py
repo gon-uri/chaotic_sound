@@ -155,6 +155,16 @@ class CatalogEntry:
         ]
         if any(t.shape != g.shape for t in tables):
             problems.append("a table does not match u_grid")
+        # Level normalization divides by σ and π: they must be finite and positive.
+        for name, t in self.observables.items():
+            if not (
+                np.all(np.isfinite(t.mean))
+                and np.all(np.isfinite(t.std) & (t.std > 0))
+                and np.all(np.isfinite(t.peak) & (t.peak > 0))
+            ):
+                problems.append(f"tables of {name} must be finite, with std and peak > 0")
+        if not np.all(np.isfinite(self.period_table) & (self.period_table > 0)):
+            problems.append("period table must be finite and positive")
         if not (self.p_min < self.p_max and self.p_min <= self.p_default <= self.p_max):
             problems.append("p_min < p_max and p_min ≤ p_default ≤ p_max are required")
         if problems:

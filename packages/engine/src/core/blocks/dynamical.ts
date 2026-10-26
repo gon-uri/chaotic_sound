@@ -7,19 +7,20 @@
  * sub-steps, and turn the heard variable into level-normalized audio.
  */
 
-import type { CatalogEntry } from "../catalog.ts";
+import type { CatalogEntry, ObservableTable } from "../catalog.ts";
 import {
   dcBlock,
   dcBlockCoefficient,
+  Glide,
   onePole,
   onePoleCoefficient,
   onePoleVarying,
 } from "../dsp/filters.ts";
 import { midiToHz, NOTE_MAX, NOTE_MIN, noteToHz, noteToMidi } from "../dsp/pitch.ts";
-import { makeRk4Scratch, type Rk4Scratch, renderTuned } from "../dsp/rk4.ts";
+import { makeRk4Scratch, renderTuned, type TunedRenderArgs } from "../dsp/rk4.ts";
 import { Mulberry32, stableSeed } from "../dsp/rng.ts";
 import { audioVariables, getSystem, type SystemDef } from "../dsp/systems.ts";
-import { BLOCK_SPECS, type ParamValue, PatchError } from "../patch.ts";
+import { BLOCK_SPECS, defaultParam, type ParamValue, PatchError, withDefaults } from "../patch.ts";
 import type { BlockContext, BlockRuntime, PortSignal } from "./block.ts";
 
 /** RMS of a dynamical block at amp = 1 (≈ −12 dBFS). */
@@ -33,6 +34,9 @@ export const DC_BLOCK_HZ = 5;
 export const IC_PERTURBATION = 1e-6;
 /** Perceptual amp curve: g = a^(1/(2·log10 2)), so each halving of a is −10 dB. */
 export const AMP_EXPONENT = 1 / (2 * Math.log10(2));
+
+/** Documented default of a dynamical parameter (BLOCK_SPECS). */
+const def = (name: string): ParamValue | undefined => defaultParam("dynamical", name);
 
 function blockError(id: string, msg: string): PatchError {
   return new PatchError(`dynamical '${id}': ${msg}`);
@@ -69,6 +73,11 @@ export class Dynamical implements BlockRuntime {
   private note: string;
   private cents: number;
   readonly seed: number;
+  /** Gain law: 1 = perceptual, 0 = linear; glides after a live change (spec §6). */
+  private readonly curve: Glide;
+  /** Tables of the heard variables, looked up once (no map lookups per sample). */
+  private readonly tableLeft: ObservableTable;
+  private readonly tableRight: ObservableTable;
   private midiMin: number;
   private midiMax: number;
   private readonly obsIndex: number;
@@ -101,6 +110,8 @@ export class Dynamical implements BlockRuntime {
   private readonly alphaU: Float64Array;
   private readonly aRaw: Float64Array;
   private readonly a: Float64Array;
+  /** Per-sample gain g(a) from the amp curve. */
+  private readonly g: Float64Array;
   private readonly pValues: Float64Array;
   private readonly dtau: Float64Array;
   private readonly traj: Float64Array;
@@ -108,13 +119,15 @@ export class Dynamical implements BlockRuntime {
   private readonly yRight: Float64Array;
   private readonly left: Float64Array;
   private readonly right: Float64Array;
-  private readonly scratch: Rk4Scratch;
+  /** Arguments of the RK4 kernel, built once so process() allocates nothing. */
+  private readonly rk4: TunedRenderArgs;
 
-  constructor(id: string, params: Record<string, ParamValue>, ctx: BlockContext) {
+  constructor(id: string, given: Record<string, ParamValue>, ctx: BlockContext) {
     this.id = id;
+    const params = withDefaults("dynamical", given); // documented defaults (spec §4.2)
     let system: SystemDef;
     try {
-      system = getSystem((params.system ?? "rossler") as string);
+      system = getSystem(params.system as string);
     } catch (e) {
       throw blockError(id, (e as Error).message);
     }
@@ -127,9 +140,9 @@ export class Dynamical implements BlockRuntime {
       throw blockError(id, (e as Error).message);
     }
     this.entry = entry;
-    const note = (params.note ?? "A3") as string;
-    const pitchMin = (params.pitch_min ?? "A1") as string;
-    const pitchMax = (params.pitch_max ?? "A5") as string;
+    const note = params.note as string;
+    const pitchMin = params.pitch_min as string;
+    const pitchMax = params.pitch_max as string;
     const midi = (name: string, value: string): number => noteToMidiChecked(id, name, value);
     midi("note", note);
     this.midiMin = midi("pitch_min", pitchMin);
@@ -155,12 +168,15 @@ export class Dynamical implements BlockRuntime {
     this.obsIndex = system.variables.indexOf(obs);
     this.rightIndex = right === null ? -1 : system.variables.indexOf(right);
     this.knobParam = params.param === undefined ? entry.uDefault : (params.param as number);
-    this.knobAmp = (params.amp ?? 1) as number;
+    this.knobAmp = params.amp as number;
     this.note = note;
-    this.cents = (params.cents ?? 0) as number;
+    this.cents = params.cents as number;
     this.frequencyHz = noteToHz(note, this.cents);
-    this.pitchLock = (params.pitch_lock ?? true) as boolean;
-    this.perceptual = (params.amp_curve ?? "perceptual") === "perceptual";
+    this.pitchLock = params.pitch_lock as boolean;
+    this.perceptual = params.amp_curve === "perceptual";
+    this.curve = new Glide(this.perceptual ? 1 : 0);
+    this.tableLeft = entry.tables(obs);
+    this.tableRight = right === null ? this.tableLeft : entry.tables(right);
     this.seed = params.seed === undefined ? stableSeed(id) : (params.seed as number);
     this.modIndex = system.paramNames.indexOf(system.modulatedParam);
     this.dim = system.variables.length;
@@ -176,6 +192,7 @@ export class Dynamical implements BlockRuntime {
     this.alphaU = new Float64Array(m);
     this.aRaw = new Float64Array(m);
     this.a = new Float64Array(m);
+    this.g = new Float64Array(m);
     this.pValues = new Float64Array(m);
     this.dtau = new Float64Array(m);
     this.traj = new Float64Array(m * this.dim);
@@ -183,8 +200,22 @@ export class Dynamical implements BlockRuntime {
     this.yRight = new Float64Array(m);
     this.left = new Float64Array(m);
     this.right = new Float64Array(m);
-    this.scratch = makeRk4Scratch(this.dim);
     this.outputs = [[this.left, this.right]];
+    this.rk4 = {
+      rhs: system.rhs,
+      x: this.x,
+      p: this.p,
+      modIndex: this.modIndex,
+      pValues: this.pValues,
+      dtau: this.dtau,
+      hMax: entry.hMax,
+      phaseIndices: system.phaseIndices,
+      lo: entry.boundsLo,
+      hi: entry.boundsHi,
+      xReset: this.xReset,
+      out: this.traj,
+      scratch: makeRk4Scratch(this.dim),
+    };
   }
 
   /** Catalog initial condition plus the seeded perturbation (spec §4.2 step 9). */
@@ -212,6 +243,7 @@ export class Dynamical implements BlockRuntime {
     this.xReset.set(this.x);
     this.p.set(this.system.defaultParams);
     this.alpha = onePoleCoefficient(DECLICK_TIME_S, sampleRate);
+    this.curve.reset(DECLICK_TIME_S, sampleRate);
     this.uInit = false;
     this.qInit = false;
     this.aState[0] = 0; // amp starts at 0: every box fades in over a few ms
@@ -233,6 +265,7 @@ export class Dynamical implements BlockRuntime {
     // 1. Frequency: the note, or the smoothed pitch input mapped A1..A5 (spec §4.2 step 1).
     if (qIn === null) {
       this.freq.fill(this.frequencyHz, 0, n);
+      this.qInit = false; // a pitch cable connected later starts from its own first value
     } else {
       if (!this.qInit) {
         this.qState[0] = qIn[0]!;
@@ -252,12 +285,19 @@ export class Dynamical implements BlockRuntime {
       this.uState[0] = uRaw[0]!;
       this.uInit = true;
     }
-    for (let i = 0; i < n; i++) {
-      const tau = Math.max(DECLICK_TIME_S, PARAM_SLEW_PERIODS / this.freq[i]!);
-      this.alphaU[i] = 1 - Math.exp(-1 / (tau * fs));
+    if (qIn === null) {
+      // Fixed pitch: the same coefficient for the whole chunk (bit-identical, one exp).
+      const tau = Math.max(DECLICK_TIME_S, PARAM_SLEW_PERIODS / this.frequencyHz);
+      this.alphaU.fill(1 - Math.exp(-1 / (tau * fs)), 0, n);
+    } else {
+      for (let i = 0; i < n; i++) {
+        const tau = Math.max(DECLICK_TIME_S, PARAM_SLEW_PERIODS / this.freq[i]!);
+        this.alphaU[i] = 1 - Math.exp(-1 / (tau * fs));
+      }
     }
     onePoleVarying(uRaw, this.uState, this.alphaU, this.u, n);
     onePole(aRaw, this.aState, this.alpha, this.a, n);
+    this.gains(n);
 
     // 3–5. Parameter and time scale.
     for (let i = 0; i < n; i++) {
@@ -268,49 +308,44 @@ export class Dynamical implements BlockRuntime {
     }
 
     // 6. Integrate.
-    this.resets += renderTuned(
-      {
-        rhs: this.system.rhs,
-        x: this.x,
-        p: this.p,
-        modIndex: this.modIndex,
-        pValues: this.pValues,
-        dtau: this.dtau,
-        hMax: e.hMax,
-        phaseIndices: this.system.phaseIndices,
-        lo: e.boundsLo,
-        hi: e.boundsHi,
-        xReset: this.xReset,
-        out: this.traj,
-        scratch: this.scratch,
-      },
-      n,
-    );
+    this.resets += renderTuned(this.rk4, n);
 
     // 7. Audio, then the DC blocker.
-    this.audio(this.observable, this.obsIndex, this.yLeft, n);
+    this.audio(this.tableLeft, this.obsIndex, this.yLeft, n);
     dcBlock(this.yLeft, this.dcLeft, this.dcR, this.left, n);
     if (this.observableRight === null) {
       dcBlock(this.yLeft, this.dcRight, this.dcR, this.right, n);
     } else {
-      this.audio(this.observableRight, this.rightIndex, this.yRight, n);
+      this.audio(this.tableRight, this.rightIndex, this.yRight, n);
       dcBlock(this.yRight, this.dcRight, this.dcR, this.right, n);
+    }
+    // Defense in depth: a non-finite sample would stay in the DC blocker's memory forever.
+    const dc = this.dcLeft[0]! + this.dcLeft[1]! + this.dcRight[0]! + this.dcRight[1]!;
+    if (!Number.isFinite(dc)) {
+      this.dcLeft.fill(0);
+      this.dcRight.fill(0);
+      this.resets++;
     }
   }
 
-  /** y = g · min(0.25/σ, 0.8/π) · (x_obs − μ), with g from the amp curve (spec §4.2 step 7). */
-  private audio(observable: string, index: number, y: Float64Array, n: number): void {
+  /** g(a) per sample: a^1.661 (perceptual), a (linear), or a blend while the law glides. */
+  private gains(n: number): void {
+    const curve = this.curve;
+    for (let i = 0; i < n; i++) {
+      const a = this.a[i]!;
+      const m = curve.next();
+      this.g[i] = m === 1 ? a ** AMP_EXPONENT : m === 0 ? a : m * a ** AMP_EXPONENT + (1 - m) * a;
+    }
+  }
+
+  /** y = g · min(0.25/σ, 0.8/π) · (x_obs − μ) (spec §4.2 step 7). */
+  private audio(t: ObservableTable, index: number, y: Float64Array, n: number): void {
     const e = this.entry;
     const dim = this.dim;
     for (let i = 0; i < n; i++) {
       const u = this.u[i]!;
-      const a = this.a[i]!;
-      const gain = this.perceptual ? a ** AMP_EXPONENT : a;
-      const scale = Math.min(
-        RMS_TARGET / e.std(observable, u),
-        PEAK_TARGET / e.peak(observable, u),
-      );
-      y[i] = gain * scale * (this.traj[i * dim + index]! - e.mean(observable, u));
+      const scale = Math.min(RMS_TARGET / e.at(t.std, u), PEAK_TARGET / e.at(t.peak, u));
+      y[i] = this.g[i]! * scale * (this.traj[i * dim + index]! - e.at(t.mean, u));
     }
   }
 
@@ -325,18 +360,19 @@ export class Dynamical implements BlockRuntime {
         this.knobParam = value === undefined ? this.entry.uDefault : (value as number);
         return true;
       case "amp":
-        this.knobAmp = (value ?? 1) as number;
+        this.knobAmp = (value ?? def("amp")) as number;
         return true;
       case "pitch_lock":
-        this.pitchLock = (value ?? true) as boolean;
+        this.pitchLock = (value ?? def("pitch_lock")) as boolean;
         return true;
       case "amp_curve":
-        this.perceptual = (value ?? "perceptual") === "perceptual";
+        this.perceptual = (value ?? def("amp_curve")) === "perceptual";
+        this.curve.target = this.perceptual ? 1 : 0; // glides over the declick time
         return true;
       case "note":
       case "cents": {
-        const note = name === "note" ? ((value ?? "A3") as string) : this.note;
-        const cents = name === "cents" ? ((value ?? 0) as number) : this.cents;
+        const note = name === "note" ? ((value ?? def("note")) as string) : this.note;
+        const cents = name === "cents" ? ((value ?? def("cents")) as number) : this.cents;
         noteToMidiChecked(this.id, "note", note); // validates the name and the C0–C8 range
         const f = noteToHz(note, cents);
         if (!(f < this.sampleRate / 2))
@@ -350,11 +386,11 @@ export class Dynamical implements BlockRuntime {
       case "pitch_max": {
         const lo =
           name === "pitch_min"
-            ? noteToMidiChecked(this.id, name, (value ?? "A1") as string)
+            ? noteToMidiChecked(this.id, name, (value ?? def("pitch_min")) as string)
             : this.midiMin;
         const hi =
           name === "pitch_max"
-            ? noteToMidiChecked(this.id, name, (value ?? "A5") as string)
+            ? noteToMidiChecked(this.id, name, (value ?? def("pitch_max")) as string)
             : this.midiMax;
         if (lo >= hi) throw blockError(this.id, "pitch_min must be lower than pitch_max");
         if (!(midiToHz(hi) < this.sampleRate / 2))

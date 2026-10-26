@@ -12,6 +12,8 @@
 
 export const SOFT_CLIP_KNEE = 0.9;
 export const FLUSH_TO_ZERO = 1e-30;
+/** A gliding setting snaps to its target once it is this close (−180 dB for a gain of 1). */
+export const GLIDE_SNAP = 1e-9;
 
 /** α = 1 − exp(−1/(τ·fs)); τ ≤ 0 gives 1 (no smoothing). */
 export function onePoleCoefficient(timeConstantS: number, sampleRate: number): number {
@@ -85,4 +87,43 @@ export function softClip(x: number, knee: number = SOFT_CLIP_KNEE): number {
   if (ax <= knee) return x;
   const width = 1 - knee;
   return Math.sign(x) * (knee + width * Math.tanh((ax - knee) / width));
+}
+
+/**
+ * A setting that glides to a new value after a live change (spec §6): a one-pole with the
+ * declick time constant, so moving a knob does not click. While the setting is steady its
+ * value is returned exactly, so renders without live changes are bit-identical to using the
+ * plain value (and to the reference engine, which has no live changes).
+ */
+export class Glide {
+  /** The value used for the current sample. */
+  current: number;
+  /** The value the setting is moving to (set it to change the setting live). */
+  target: number;
+  private alpha = 1;
+
+  constructor(value: number) {
+    this.current = value;
+    this.target = value;
+  }
+
+  /** Start a new render at `sampleRate` with no glide in progress. */
+  reset(timeConstantS: number, sampleRate: number): void {
+    this.alpha = onePoleCoefficient(timeConstantS, sampleRate);
+    this.current = this.target;
+  }
+
+  /** True while no glide is in progress. */
+  get steady(): boolean {
+    return this.current === this.target;
+  }
+
+  /** Advance one sample and return the value for it. */
+  next(): number {
+    if (this.current !== this.target) {
+      this.current += this.alpha * (this.target - this.current);
+      if (Math.abs(this.target - this.current) < GLIDE_SNAP) this.current = this.target;
+    }
+    return this.current;
+  }
 }

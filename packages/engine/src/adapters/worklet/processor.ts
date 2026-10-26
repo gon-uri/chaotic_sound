@@ -24,6 +24,12 @@ class ChaoticSoundProcessor extends AudioWorkletProcessor {
     this.port.onmessage = (event: MessageEvent<ToWorklet>) => this.onMessage(event.data);
   }
 
+  /** Count frames from 0 again and report diagnostics on the next quantum. */
+  private restartClock(): void {
+    this.frames = 0;
+    this.nextReport = 0;
+  }
+
   private send(msg: FromWorklet): void {
     this.port.postMessage(msg);
   }
@@ -34,7 +40,7 @@ class ChaoticSoundProcessor extends AudioWorkletProcessor {
         case "load":
           this.engine.load(msg.patch, msg.catalog, sampleRate);
           this.loaded = true;
-          this.frames = 0;
+          this.restartClock();
           this.send({ type: "loaded" });
           break;
         case "edit":
@@ -45,7 +51,7 @@ class ChaoticSoundProcessor extends AudioWorkletProcessor {
           break;
         case "reset":
           this.engine.reset();
-          this.frames = 0;
+          this.restartClock();
           break;
         case "play":
           this.playing = msg.playing;
@@ -66,7 +72,17 @@ class ChaoticSoundProcessor extends AudioWorkletProcessor {
       right.fill(0);
       return true;
     }
-    this.engine.process(left.length, left, right);
+    try {
+      this.engine.process(left.length, left, right);
+    } catch (error) {
+      // Never let an exception kill the node (the browser would stop it for good):
+      // go silent, report once, and wait for the next 'load'.
+      left.fill(0);
+      right.fill(0);
+      this.loaded = false;
+      this.send({ type: "error", message: `render failed: ${(error as Error).message}` });
+      return true;
+    }
     this.frames += left.length;
     if (this.frames >= this.nextReport) {
       this.nextReport = this.frames + Math.round(sampleRate / 4);

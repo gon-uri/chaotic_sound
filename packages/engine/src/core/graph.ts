@@ -16,10 +16,17 @@ export interface InputWiring {
   readonly scratch: PortSignal;
 }
 
+/** One block in processing order, with its input wiring and a reusable inputs array. */
+export interface GraphStep {
+  readonly block: BlockRuntime;
+  readonly wiring: readonly InputWiring[];
+  /** Filled before each `process()` call (one entry per input port; no allocation). */
+  readonly inputs: (PortSignal | null)[];
+}
+
 /** A compiled patch: blocks in processing order with their inputs. */
 export interface CompiledGraph {
-  readonly order: readonly BlockRuntime[];
-  readonly inputs: ReadonlyMap<string, readonly InputWiring[]>;
+  readonly steps: readonly GraphStep[];
   readonly sink: BlockRuntime;
 }
 
@@ -100,7 +107,7 @@ export function compileGraph(
   maxFrames: number,
 ): CompiledGraph {
   const order = checkAndOrder(doc).map((id) => blocks.get(id)!);
-  const inputs = new Map<string, InputWiring[]>();
+  const steps: GraphStep[] = [];
   for (const block of order) {
     const wiring = block.spec.inputs.map((port) => {
       const sources = doc.cables
@@ -115,10 +122,10 @@ export function compileGraph(
       const scratch = Array.from({ length: channels }, () => new Float64Array(maxFrames));
       return { sources, control: port.type === "control", scratch };
     });
-    inputs.set(block.id, wiring);
+    steps.push({ block, wiring, inputs: wiring.map(() => null) });
   }
   const sink = order.find((b) => b.main !== undefined)!;
-  return { order, inputs, sink };
+  return { steps, sink };
 }
 
 /** Sanitize a control value: NaN → 0, +∞ → 1, −∞ → 0, then clip to [0, 1] (spec §3). */

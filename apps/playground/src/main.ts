@@ -36,13 +36,27 @@ for (const path of names) {
 
 let ctx: AudioContext | null = null;
 let node: AudioWorkletNode | null = null;
+let lastError: string | null = null;
 
 function send(msg: ToWorklet): void {
   node?.port.postMessage(msg);
 }
 
-function currentPatch(): PatchDocument {
+// The patch being played, with the knob changes applied (so WAV export matches what you hear).
+let live: PatchDocument | null = null;
+
+function selectedPatch(): PatchDocument {
   return structuredClone(patches[select.value]!);
+}
+
+function setLiveParam(blockId: string, name: string, value: number): void {
+  const block = live?.blocks.find((b) => b.id === blockId);
+  if (block !== undefined) block.params = { ...(block.params ?? {}), [name]: value };
+}
+
+/** True if a cable drives this input; the cable then overrides the knob (spec §3). */
+function cabled(patch: PatchDocument, blockId: string, input: string): boolean {
+  return patch.cables.some((c) => c.to === `${blockId}.${input}`);
 }
 
 function buildKnobs(patch: PatchDocument): void {
@@ -61,9 +75,15 @@ function buildKnobs(patch: PatchDocument): void {
       value: String(initial),
     });
     const text = document.createTextNode(`${label}: ${initial.toFixed(3)}`);
+    if (cabled(patch, blockId, name)) {
+      input.disabled = true;
+      text.textContent = `${label}: driven by a cable`;
+    }
     input.addEventListener("input", () => {
-      text.textContent = `${label}: ${Number(input.value).toFixed(3)}`;
-      send({ type: "setParam", blockId, name, value: Number(input.value) });
+      const value = Number(input.value);
+      text.textContent = `${label}: ${value.toFixed(3)}`;
+      setLiveParam(blockId, name, value);
+      send({ type: "setParam", blockId, name, value });
     });
     wrap.append(text, input);
     knobs.append(wrap);
@@ -86,16 +106,27 @@ async function play(): Promise<void> {
     node.connect(ctx.destination);
     node.port.onmessage = (e: MessageEvent<FromWorklet>) => {
       const m = e.data;
-      if (m.type === "error") status.textContent = `error: ${m.message}`;
-      if (m.type === "diagnostics") {
-        status.textContent =
-          `playing at ${ctx!.sampleRate} Hz · ${(m.frames / ctx!.sampleRate).toFixed(1)} s rendered\n` +
-          `diagnostics ${JSON.stringify(m.diagnostics)}`;
+      if (m.type === "error") {
+        lastError = m.message;
+        status.textContent = `error: ${m.message}`;
       }
+      if (m.type === "diagnostics") {
+        const seconds = (m.frames / ctx!.sampleRate).toFixed(1);
+        status.textContent =
+          `playing at ${ctx!.sampleRate} Hz · ${seconds} s rendered\n` +
+          `diagnostics ${JSON.stringify(m.diagnostics)}` +
+          (lastError === null ? "" : `\nlast error: ${lastError}`);
+      }
+    };
+    // An exception inside the processor stops it for good; say so instead of going silent.
+    node.onprocessorerror = () => {
+      status.textContent = "the audio processor crashed; reload the page";
     };
   }
   await ctx.resume();
-  const patch = currentPatch();
+  const patch = selectedPatch();
+  live = structuredClone(patch);
+  lastError = null;
   buildKnobs(patch);
   send({ type: "load", patch, catalog });
   send({ type: "play", playing: true });
@@ -112,11 +143,18 @@ $<HTMLButtonElement>("stop").addEventListener("click", () => {
   status.textContent = "stopped";
 });
 select.addEventListener("change", () => {
-  if (ctx !== null) void play();
+  if (ctx === null) return;
+  play().catch((e: unknown) => {
+    status.textContent = `could not load the patch: ${String(e)}`;
+  });
 });
 $<HTMLButtonElement>("wav").addEventListener("click", () => {
   status.textContent = "rendering 10 s in a Web Worker…";
   const worker = new Worker(renderWorkerUrl, { type: "module" });
+  worker.onerror = (e: ErrorEvent) => {
+    worker.terminate();
+    status.textContent = `render failed: ${e.message}`;
+  };
   worker.onmessage = (e: MessageEvent<RenderResponse>) => {
     const m = e.data;
     worker.terminate();
@@ -124,16 +162,18 @@ $<HTMLButtonElement>("wav").addEventListener("click", () => {
       status.textContent = `render failed: ${m.message}`;
       return;
     }
+    const url = URL.createObjectURL(new Blob([m.wav], { type: "audio/wav" }));
     const a = Object.assign(document.createElement("a"), {
-      href: URL.createObjectURL(new Blob([m.wav], { type: "audio/wav" })),
+      href: url,
       download: `${select.selectedOptions[0]?.textContent ?? "patch"}.wav`,
     });
     a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000); // after the download has started
     status.textContent = `rendered ${m.seconds} s in ${(m.renderMs / 1000).toFixed(2)} s · ${JSON.stringify(m.diagnostics)}`;
   };
   const request: RenderRequest = {
     type: "render",
-    patch: currentPatch(),
+    patch: live ?? selectedPatch(), // the patch as you hear it, knob changes included
     catalog,
     seconds: 10,
     sampleRate: 48_000,

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import math
+import typing
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -92,6 +93,34 @@ class RenderStats:
 def sanitize_control(x: NDArray[np.float64]) -> NDArray[np.float64]:
     """Non-finite control values become 0 (+inf → 1), then clip to [0, 1] (spec §3)."""
     return np.clip(np.nan_to_num(x, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0)
+
+
+def _json_params(type_name: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Params from patch JSON: drop ``null`` (= default) and read 7.0 as 7 for integers.
+
+    A misspelled name stays an error even when its value is ``null`` (spec §5). JSON has a
+    single number type, so an integer setting may be written ``7`` or ``7.0`` (spec §5);
+    engines whose JSON parser cannot tell them apart behave the same way.
+    """
+    cls = BLOCK_TYPES.get(type_name) if isinstance(type_name, str) else None
+    if cls is None:
+        return params  # add_block reports the unknown type
+    hints = typing.get_type_hints(cls.Params)
+    out: dict[str, Any] = {}
+    for k, v in params.items():
+        if k not in hints:
+            out[k] = v  # add_block reports the unknown name
+        elif v is None:
+            continue
+        elif (
+            isinstance(v, float)
+            and v.is_integer()
+            and (hints[k] is int or int in typing.get_args(hints[k]))
+        ):
+            out[k] = int(v)
+        else:
+            out[k] = v
+    return out
 
 
 class Patch:
@@ -327,7 +356,7 @@ class Patch:
             params = spec.get("params", {})
             if not isinstance(params, dict):
                 raise PatchError(f"block {spec.get('id')!r}: 'params' must be an object")
-            params = {k: v for k, v in params.items() if v is not None}  # null = default
+            params = _json_params(spec["type"], params)
             try:
                 patch.add_block(spec["type"], spec["id"], **params)
             except PatchError:
