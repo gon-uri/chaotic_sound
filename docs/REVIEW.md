@@ -239,8 +239,11 @@ from.
 - **uv** is in `~/.local/share/uv-bootstrap` (linked from `~/.local/bin/uv`); delete that
   folder to remove it. **Node** goes in `~/.local/node` (same idea).
 - Python 3.14 with numba 0.68; dysts pinned at commit `2a03f1ae7b06` (a dev dependency).
-- **License**: none yet (private repo). dysts' GitHub says Apache-2.0 while its package
-  metadata says MIT. Settle this before publishing.
+- **License** (decided, round 4): code under AGPL-3.0-or-later, plus a section 7(b) term that
+  keeps the attribution "Based on chaotic_sound by Gonzalo Uribarri" in copies, modified
+  versions and the app's About dialog. Docs under CC BY-SA 4.0. Users' sounds and music are
+  theirs. `CITATION.cff` added. dysts is Apache-2.0 or MIT; both are compatible, and
+  `NOTICE.md` follows the stricter one. The repository is public.
 
 ## F. System pages (`docs/systems/`)
 

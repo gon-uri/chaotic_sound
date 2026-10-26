@@ -2,6 +2,8 @@
   "name": "chaotic-sound",
   "private": true,
   "description": "Modular synth driven by chaotic ODEs tuned to musical notes (workspace root).",
+  "license": "AGPL-3.0-or-later",
+  "author": "Gonzalo Uribarri",
   "type": "module",
   "workspaces": [
     "packages/*",

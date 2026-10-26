@@ -82,6 +82,8 @@ TypeScript (run from the repo root; Node 24 is in `~/.local/node`, see `docs/REV
 
 ## Git
 
-- Remote: private repo `gon-uri/chaotic_sound`, default branch `main`.
+- Remote: public repo `gon-uri/chaotic_sound`, default branch `main`. License: AGPL-3.0-or-later
+  with a section 7(b) attribution term (`NOTICE.md`); docs under CC BY-SA 4.0. Keep the
+  attribution line and the editor's About dialog (`apps/web/src/About.tsx`) intact.
 - Write small, descriptive commits. Never commit `lab/outputs/` or `node_modules/`. Commit
   `uv.lock` and `package-lock.json`.

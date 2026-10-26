@@ -3,6 +3,8 @@
   "version": "0.3.0",
   "private": true,
   "description": "chaotic_sound real-time engine: hexagonal core (pure TypeScript) with Node and AudioWorklet adapters.",
+  "license": "AGPL-3.0-or-later",
+  "author": "Gonzalo Uribarri",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

@@ -1,6 +1,7 @@
 import { ReactFlowProvider } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { lazy, type ReactNode, Suspense, useEffect } from "react";
+import { About } from "./About.tsx";
 import { useAudioStore } from "./audio/engineBridge.ts";
 import { Canvas } from "./Canvas.tsx";
 import { usePatchStore } from "./store/patchStore.ts";
@@ -18,6 +19,7 @@ function StatusBar(): ReactNode {
   const clear = usePatchStore((s) => s.clearError);
   const audio = useAudioStore();
   const toast = useUiStore((s) => s.toast);
+  const setAbout = useUiStore((s) => s.setAbout);
   return (
     <footer className="statusbar">
       {error ? (
@@ -35,6 +37,9 @@ function StatusBar(): ReactNode {
           ? `▶ ${audio.seconds.toFixed(1)} s · ${audio.sampleRate} Hz`
           : t.audioStartHint}
       </span>
+      <button type="button" className="link about-link" onClick={() => setAbout(true)}>
+        © Gonzalo Uribarri · AGPL-3.0 · {t.about}
+      </button>
     </footer>
   );
 }
@@ -70,6 +75,7 @@ export function App(): ReactNode {
         </main>
         <StatusBar />
         <LearnMoreSlot />
+        <About />
       </div>
     </ReactFlowProvider>
   );

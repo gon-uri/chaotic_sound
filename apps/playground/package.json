@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "Developer playground: play the example patches live in the browser with the TypeScript engine.",
+  "license": "AGPL-3.0-or-later",
+  "author": "Gonzalo Uribarri",
   "type": "module",
   "scripts": {
     "dev": "vite",

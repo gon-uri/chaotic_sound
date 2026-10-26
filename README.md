@@ -1,5 +1,11 @@
 # chaotic_sound
 
+<p align="center">
+  <a href="https://gon-uri.github.io/chaotic_sound/">
+    <img src="docs/figures/open-app-button.svg" alt="Open the chaotic_sound app in your browser" width="440">
+  </a>
+</p>
+
 **Make music with strange attractors.** A modular synthesizer in the browser. Each box solves a
 chaotic differential equation (Lorenz, Rössler, Chua, …) and is tuned to a musical note.
 Patching boxes together lets you hear chaos, and each box opens a page on the math and the
@@ -14,7 +20,7 @@ history behind its system.
 >   turn knobs, play live, export WAV and open the Learn-more pages (3D attractor, equations,
 >   history).
 >
-> Private repository. Open decisions: [`docs/REVIEW.md`](docs/REVIEW.md).
+> Open decisions: [`docs/REVIEW.md`](docs/REVIEW.md).
 
 ## Why
 
@@ -88,4 +94,14 @@ the GilpinLab ([github.com/GilpinLab/dysts](https://github.com/GilpinLab/dysts))
 
 ## License
 
-Not decided yet. The repository is private for now.
+Copyright (C) 2026 Gonzalo Uribarri.
+
+- **Code:** [GNU AGPL v3 or later](LICENSE), with one additional term (section 7(b)). Copies
+  and modified versions must keep the attribution *"Based on chaotic_sound by Gonzalo Uribarri
+  (https://github.com/gon-uri/chaotic_sound)"*, in the source and in the app's legal notices.
+  See [`NOTICE.md`](NOTICE.md).
+- **Documentation and system pages** (`docs/`): [CC BY-SA 4.0](docs/LICENSE.md).
+- **What you make with it is yours:** sounds, music and patches you create may be used and
+  sold for any purpose. Credit is appreciated but not required.
+- **Commercial licenses** for closed-source use are available from the author.
+- **Citing:** see [`CITATION.cff`](CITATION.cff) (GitHub's "Cite this repository").

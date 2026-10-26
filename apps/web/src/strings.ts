@@ -32,6 +32,11 @@ export const t = {
   parameter: "Parameter",
   amp: "Amp",
   tonality: "Tonality",
+  about: "About",
+  aboutTagline:
+    "A modular synthesizer whose voices are chaotic dynamical systems, tuned to musical notes.",
+  aboutLicense: "License",
+  aboutCredits: "Credits",
   pitchLock: "Pitch lock",
   perceptualAmp: "Perceptual amp",
   observable: "Heard variable",

@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use chaotic_sound in your work, please cite it as below."
+type: software
+title: "chaotic_sound: a modular synthesizer driven by chaotic dynamical systems"
+authors:
+  - family-names: Uribarri
+    given-names: Gonzalo
+repository-code: "https://github.com/gon-uri/chaotic_sound"
+url: "https://gon-uri.github.io/chaotic_sound/"
+license: AGPL-3.0-or-later
+keywords:
+  - chaos
+  - dynamical systems
+  - sound synthesis
+  - modular synthesizer
+  - education

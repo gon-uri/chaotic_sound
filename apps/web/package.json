@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "chaotic_sound web app: patch editor and Learn-more pages (Phase 3 MVP).",
+  "license": "AGPL-3.0-or-later",
+  "author": "Gonzalo Uribarri",
   "type": "module",
   "scripts": {
     "dev": "vite",
