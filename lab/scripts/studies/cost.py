@@ -1,40 +1,47 @@
-"""Compute cost of one dynamical box, and what it implies for the browser engine.
+"""Compute cost of one dynamical box, and what it implies for the browser engine (engine v0.3).
 
-Study report: ``docs/studies/cost.md``. Usage (from ``lab/``; about 2 minutes)::
+Study report: ``docs/studies/cost.md``. Usage (from ``lab/``; about 10 minutes with Chrome)::
 
-    uv run python scripts/studies/cost.py [--quick] [--no-js]
+    caffeinate -is uv run python scripts/studies/cost.py [--quick] [--no-js] [--chrome]
 
 What it measures (all at fs = 48 kHz, compile time excluded by warm-up calls):
 
-1. Pure RK4 step cost of the numba kernel per system (``integrate_sampled`` with 1000 steps
-   per recorded sample, so per-sample overhead is negligible).
-2. For every system x note (A1, A3, A5, A7) x {static knob, full-range 4 s sine LFO on
-   ``param``}: wall time of ``Dynamical.process`` in 128-sample chunks (an AudioWorklet render
-   quantum) and 512-sample chunks (``Patch.render`` default), the time of ``render_tuned``
-   alone on the same per-sample inputs, the RK4 sub-steps per sample, and a per-stage
-   breakdown of ``process`` (an instrumented copy, checked to give identical output).
+1. Pure RK4 step cost of the numba engine kernel per system (``integrate_sampled`` with 1000
+   steps per recorded sample, so per-sample overhead is negligible), and of hand-written
+   numba kernels with scalar locals (the native ceiling), checked bit for bit against it.
+2. For every system x note (A1, A3, A5, A7) x {static knob at the default, full-range 4 s sine
+   LFO on ``param``}: wall time of ``Dynamical.process`` in 128-sample chunks (an AudioWorklet
+   render quantum) and 512-sample chunks (``Patch.render`` default), the time of
+   ``render_tuned`` alone on the same per-sample inputs, the RK4 sub-steps per sample, and a
+   per-stage breakdown of ``process`` (an instrumented copy, checked to give identical output).
 3. Fixed per-call overhead of ``process`` (fit of time per call vs chunk length).
-4. A whole ``Patch.render`` (LFO -> Lorenz -> Output) for comparison with the "10x real
-   time" rule of thumb.
-5. The JavaScript benchmark ``rk4_bench.js`` run with every JS engine found on the machine
-   (node, or Apple's JavaScriptCore shell, which ships with macOS), fed with the catalog
-   tables and Python reference values so the JS box is checked to compute the same signal.
+4. A whole ``Patch.render`` (LFO -> Lorenz -> Output).
+5. The JavaScript benchmark ``rk4_bench.js``, run 3 times in separate processes with Apple's
+   JavaScriptCore shell (ships with macOS) and node if installed, and once in headless Google
+   Chrome (V8) with ``--chrome``. It is fed the catalog tables and Python reference outputs, so
+   the JS box is checked to compute the same signal as the Python block. Its last section
+   times fresh copies of the box code from their first call (JIT warm-up), with a
+   ``Float64Array`` or a ``null`` control input and a switch between the two.
 
 Outputs go to ``outputs/studies/cost/``: ``results.json``, ``summary.md``, ``js_<engine>.json``,
 ``bench_config.{js,json}``, ``cost_vs_substeps.png`` and ``breakdown.png``. JS result files
-added there by hand (for example from a browser console run) are included in the summary.
+added there by hand (for example saved from ``rk4_bench.html`` in a browser) are included in
+the summary.
 """
 
 from __future__ import annotations
 
 import argparse
 import gc
+import html
 import json
 import math
 import os
 import platform
 import shutil
+import statistics
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -53,12 +60,18 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numba  # noqa: E402
 import numpy as np  # noqa: E402
 
-from chaotic_sound.blocks import Dynamical  # noqa: E402
-from chaotic_sound.catalog import load_default_catalog  # noqa: E402
-from chaotic_sound.dsp import dc_block, one_pole  # noqa: E402
+import chaotic_sound  # noqa: E402
+from chaotic_sound.blocks import BlockContext, Dynamical  # noqa: E402
+from chaotic_sound.blocks.dynamical import (  # noqa: E402
+    AMP_EXPONENT,
+    DECLICK_TIME_S,
+    PARAM_SLEW_PERIODS,
+)
+from chaotic_sound.catalog import default_catalog_path, load_default_catalog  # noqa: E402
+from chaotic_sound.dsp import dc_block, one_pole, one_pole_varying  # noqa: E402
 from chaotic_sound.integrate import integrate_sampled, render_tuned  # noqa: E402
 from chaotic_sound.patch import Patch  # noqa: E402
-from chaotic_sound.pitch import note_to_hz  # noqa: E402
+from chaotic_sound.pitch import note_to_hz, note_to_midi  # noqa: E402
 from chaotic_sound.systems import get_system  # noqa: E402
 
 FS = 48_000.0
@@ -67,10 +80,15 @@ PATCH_BLOCK = 512  # Patch.render default block size
 NOTES = ("A1", "A3", "A5", "A7")
 LFO_PERIOD_S = 4.0
 BUDGET_US = QUANTUM / FS * 1e6  # 2666.7 µs per render quantum
+HALF_BUDGET_US = 0.5 * BUDGET_US
+PITCH_Q = 0.8  # pitch-input value used by the JS 'pitch' mode (midi_min = note − 12, span 15)
 JSC = Path("/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc")
+CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 BENCH_JS = Path(__file__).resolve().parent / "rk4_bench.js"
+TWO_PI = 2.0 * math.pi
 
 CAT = load_default_catalog()
+CTX = BlockContext(catalog=CAT)
 SYSTEMS = list(CAT.entries)
 
 
@@ -103,10 +121,22 @@ def lfo(n: int) -> np.ndarray:
     return 0.5 * (1.0 - np.cos(2.0 * np.pi * np.mod(t / LFO_PERIOD_S, 1.0)))
 
 
-def make_block(system: str, note: str) -> Dynamical:
-    b = Dynamical("osc", catalog=CAT, system=system, note=note)
+def make_block(system: str, note: str, **params: Any) -> Dynamical:
+    b = Dynamical("osc", context=CTX, system=system, note=note, **params)
     b.reset(FS)
     return b
+
+
+def u_worst(system: str) -> float:
+    """Knob position where P(u), and with it the number of RK4 sub-steps, is largest."""
+    e = CAT[system]
+    return float(e.u_grid[int(np.argmax(e.period_table))])
+
+
+def substeps(system: str, u: float, f0: float, fs: float = FS) -> int:
+    """Return the sub-steps per sample n = ⌈P(u)·f₀/fs / h_max⌉ (spec §4.2 step 6)."""
+    e = CAT[system]
+    return max(1, math.ceil(float(e.period(u)) * f0 / fs / e.h_max))
 
 
 def run_process(system: str, note: str, u: np.ndarray | None, n_total: int, chunk: int) -> float:
@@ -125,46 +155,40 @@ STAGES = ("controls", "param_period", "kernel", "normalize", "dc_block")
 def process_instrumented(
     b: Dynamical, n: int, u_in: np.ndarray | None, acc: dict[str, float]
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Copy of ``Dynamical.process`` with a timer around each stage (spec §4.2 steps 1–9).
+    """Copy of ``Dynamical.process`` (v0.3, no pitch cable) with a timer around each stage.
 
     Returns the output and the per-sample ``p_values`` and ``dtau`` given to the kernel.
     """
     pc = time.perf_counter
     t0 = pc()
-    u_raw = np.full(n, b.knob_param) if u_in is None else np.asarray(u_in, dtype=np.float64)
+    freq = b._frequency(n, None)
+    u_raw = np.full(n, b.knob_param) if u_in is None else u_in
     a_raw = np.full(n, b.params.amp)
     if b._u_state is None:
         b._u_state = np.array([u_raw[0]])
+    tau = np.maximum(DECLICK_TIME_S, PARAM_SLEW_PERIODS / freq)
+    alpha_u = 1.0 - np.exp(-1.0 / (tau * b.sample_rate))
     u = np.empty(n)
     a = np.empty(n)
-    one_pole(u_raw, b._u_state, b._alpha, u)
+    one_pole_varying(u_raw, b._u_state, alpha_u, u)
     one_pole(a_raw, b._a_state, b._alpha, a)
+    gain = a**AMP_EXPONENT if b.params.amp_curve == "perceptual" else a
     t1 = pc()
     entry = b.entry
     p_values = entry.param_value(u)
     period = entry.period(u) if b.params.pitch_lock else np.full(n, b._period_unlocked)
-    dtau = period * (b.frequency_hz / b.sample_rate)
+    dtau = period * freq / b.sample_rate
     traj = np.empty((n, b.system.dim))
     t2 = pc()
     b.resets += int(
         render_tuned(
-            b.system.rhs,
-            b._x,
-            b._p,
-            b.system.modulated_index,
-            p_values,
-            dtau,
-            entry.h_max,
-            b._wrap,
-            entry.bounds_lo,
-            entry.bounds_hi,
-            b._x_reset,
-            traj,
+            b.system.rhs, b._x, b._p, b.system.modulated_index, p_values, dtau,
+            entry.h_max, b._wrap, entry.bounds_lo, entry.bounds_hi, b._x_reset, traj,
         )
-    )
+    )  # fmt: skip
     t3 = pc()
-    left = b._audio(traj, b.observable, u, a)
-    right = left if b.observable_right is None else b._audio(traj, b.observable_right, u, a)
+    left = b._audio(traj, b.observable, u, gain)
+    right = left if b.observable_right is None else b._audio(traj, b.observable_right, u, gain)
     t4 = pc()
     out = np.empty((n, 2))
     dc_block(left, b._dc_state[0], b._dc_r, out[:, 0])
@@ -176,7 +200,7 @@ def process_instrumented(
 
 
 # ------------------------------------------------------------------------------------
-# measurements
+# measurements: numba
 # ------------------------------------------------------------------------------------
 
 
@@ -199,24 +223,66 @@ def pure_step_cost(repeats: int, n_samples: int = 2000, sps: int = 1000) -> dict
     return res
 
 
+# Scalar-local right-hand sides, same operation order as chaotic_sound.systems.
 @numba.njit(cache=False)
-def _lorenz_scalar(st, p, h, nsteps):  # type: ignore[no-untyped-def]
-    """Lorenz RK4 with scalar locals (the native ceiling); same op order as rk4_step."""
-    s, r, b = p[0], p[1], p[2]
-    x0, x1, x2 = st[0], st[1], st[2]
-    h2, h6 = 0.5 * h, h / 6.0
-    for _ in range(nsteps):
-        a0, a1, a2 = s * (x1 - x0), x0 * (r - x2) - x1, x0 * x1 - b * x2
-        u0, u1, u2 = x0 + h2 * a0, x1 + h2 * a1, x2 + h2 * a2
-        b0, b1, b2 = s * (u1 - u0), u0 * (r - u2) - u1, u0 * u1 - b * u2
-        v0, v1, v2 = x0 + h2 * b0, x1 + h2 * b1, x2 + h2 * b2
-        c0, c1, c2 = s * (v1 - v0), v0 * (r - v2) - v1, v0 * v1 - b * v2
-        w0, w1, w2 = x0 + h * c0, x1 + h * c1, x2 + h * c2
-        e0, e1, e2 = s * (w1 - w0), w0 * (r - w2) - w1, w0 * w1 - b * w2
-        x0 += h6 * (a0 + 2.0 * b0 + 2.0 * c0 + e0)
-        x1 += h6 * (a1 + 2.0 * b1 + 2.0 * c1 + e1)
-        x2 += h6 * (a2 + 2.0 * b2 + 2.0 * c2 + e2)
-    st[0], st[1], st[2] = x0, x1, x2
+def _f_lorenz(x0, x1, x2, p):  # type: ignore[no-untyped-def]
+    return p[0] * (x1 - x0), x0 * (p[1] - x2) - x1, x0 * x1 - p[2] * x2
+
+
+@numba.njit(cache=False)
+def _f_rossler(x0, x1, x2, p):  # type: ignore[no-untyped-def]
+    return -x1 - x2, x0 + p[0] * x1, p[1] + x2 * (x0 - p[2])
+
+
+@numba.njit(cache=False)
+def _f_chua(x0, x1, x2, p):  # type: ignore[no-untyped-def]
+    hh = p[3] * x0 + 0.5 * (p[2] - p[3]) * (abs(x0 + 1.0) - abs(x0 - 1.0))
+    return p[0] * (x1 - x0 - hh), x0 - x1 + x2, -p[1] * x1
+
+
+@numba.njit(cache=False)
+def _f_rikitake(x0, x1, x2, p):  # type: ignore[no-untyped-def]
+    return -p[1] * x0 + x1 * x2, -p[1] * x1 - p[0] * x0 + x0 * x2, 1.0 - x0 * x1
+
+
+@numba.njit(cache=False)
+def _f_duffing(x0, x1, x2, p):  # type: ignore[no-untyped-def]
+    return x1, -p[2] * x1 - p[1] * x0 - p[0] * x0**3 + p[3] * np.cos(x2), p[4]
+
+
+SCALAR_RHS = {
+    "lorenz": _f_lorenz,
+    "rossler": _f_rossler,
+    "chua": _f_chua,
+    "rikitake": _f_rikitake,
+    "duffing": _f_duffing,
+}
+
+
+def _scalar_kernel(f: Any, wrap_z: bool) -> Any:
+    """Native RK4 loop with scalar locals for a 3-variable RHS ``f`` (wraps z if a phase)."""
+
+    @numba.njit(cache=False)
+    def kern(st, p, h, n_samples, sps):  # type: ignore[no-untyped-def]
+        x0, x1, x2 = st[0], st[1], st[2]
+        h2, h6 = 0.5 * h, h / 6.0
+        for _ in range(n_samples):
+            for _ in range(sps):
+                a0, a1, a2 = f(x0, x1, x2, p)
+                u0, u1, u2 = x0 + h2 * a0, x1 + h2 * a1, x2 + h2 * a2
+                b0, b1, b2 = f(u0, u1, u2, p)
+                v0, v1, v2 = x0 + h2 * b0, x1 + h2 * b1, x2 + h2 * b2
+                c0, c1, c2 = f(v0, v1, v2, p)
+                w0, w1, w2 = x0 + h * c0, x1 + h * c1, x2 + h * c2
+                e0, e1, e2 = f(w0, w1, w2, p)
+                x0 += h6 * (a0 + 2.0 * b0 + 2.0 * c0 + e0)
+                x1 += h6 * (a1 + 2.0 * b1 + 2.0 * c1 + e1)
+                x2 += h6 * (a2 + 2.0 * b2 + 2.0 * c2 + e2)
+            if wrap_z:
+                x2 = x2 % TWO_PI
+        st[0], st[1], st[2] = x0, x1, x2
+
+    return kern
 
 
 @numba.njit(cache=False)
@@ -249,49 +315,36 @@ def _lorenz_scalar_pair(st, p, h, nsteps):  # type: ignore[no-untyped-def]
     st[0], st[1], st[2], st[3], st[4], st[5] = x0, x1, x2, y0, y1, y2
 
 
-@numba.njit(cache=False)
-def _rossler_scalar(st, p, h, nsteps):  # type: ignore[no-untyped-def]
-    """Rössler RK4 with scalar locals; same op order as rk4_step."""
-    a, b, c = p[0], p[1], p[2]
-    x0, x1, x2 = st[0], st[1], st[2]
-    h2, h6 = 0.5 * h, h / 6.0
-    for _ in range(nsteps):
-        a0, a1, a2 = -x1 - x2, x0 + a * x1, b + x2 * (x0 - c)
-        u0, u1, u2 = x0 + h2 * a0, x1 + h2 * a1, x2 + h2 * a2
-        b0, b1, b2 = -u1 - u2, u0 + a * u1, b + u2 * (u0 - c)
-        v0, v1, v2 = x0 + h2 * b0, x1 + h2 * b1, x2 + h2 * b2
-        c0, c1, c2 = -v1 - v2, v0 + a * v1, b + v2 * (v0 - c)
-        w0, w1, w2 = x0 + h * c0, x1 + h * c1, x2 + h * c2
-        e0, e1, e2 = -w1 - w2, w0 + a * w1, b + w2 * (w0 - c)
-        x0 += h6 * (a0 + 2.0 * b0 + 2.0 * c0 + e0)
-        x1 += h6 * (a1 + 2.0 * b1 + 2.0 * c1 + e1)
-        x2 += h6 * (a2 + 2.0 * b2 + 2.0 * c2 + e2)
-    st[0], st[1], st[2] = x0, x1, x2
-
-
-def native_scalar_cost(repeats: int, nsteps: int = 2_000_000) -> dict[str, Any]:
-    """Measure ns per state-step of hand-specialized numba kernels with scalar locals.
+def native_scalar_cost(repeats: int, n_samples: int = 2000, sps: int = 1000) -> dict[str, Any]:
+    """Measure ns per step of hand-specialized numba kernels with scalar locals (all systems).
 
     This is what LLVM makes of the loop without the generic array structure: a proxy for
-    the best native/WASM code. The results are checked bit-for-bit against the engine.
+    the best native/WASM scalar code. Each kernel is checked bit for bit against the engine
+    kernel over 2000 steps (``integrate_sampled`` with one step per sample).
     """
     res: dict[str, Any] = {}
-    for name, fn, count in (
-        ("lorenz", _lorenz_scalar, 1),
-        ("lorenz", _lorenz_scalar_pair, 2),
-        ("rossler", _rossler_scalar, 1),
-    ):
+    for name in SYSTEMS:
         sysdef, entry = get_system(name), CAT[name]
         p, h = sysdef.params_array(), entry.h_max
-        ic = np.tile(entry.initial_condition, count)
-        # bit-for-bit check against the engine's generic kernel over 1000 steps
-        st = ic.copy()
-        fn(st, p, h, 1000)
+        kern = _scalar_kernel(SCALAR_RHS[name], bool(sysdef.wrap_mask()[2]))
+        st = entry.initial_condition.copy()
+        kern(st, p, h, 2000, 1)
         x = entry.initial_condition.copy()
-        integrate_sampled(sysdef.rhs, x, p, h, 1, np.empty((1000, 3)), sysdef.wrap_mask())
-        same = bool(np.array_equal(st[:3], x))
-        t = best_time(lambda fn=fn, ic=ic, p=p, h=h: fn(ic.copy(), p, h, nsteps), repeats)
-        res[f"{name}_x{count}"] = {"ns_per_state_step": t / (nsteps * count) * 1e9, "bitwise": same}
+        integrate_sampled(sysdef.rhs, x, p, h, 1, np.empty((2000, 3)), sysdef.wrap_mask())
+        same = bool(np.array_equal(st, x))
+        t = best_time(
+            lambda kern=kern, entry=entry, p=p, h=h: kern(
+                entry.initial_condition.copy(), p, h, n_samples, sps
+            ),
+            repeats,
+        )
+        res[name] = {"ns_per_step": t / (n_samples * sps) * 1e9, "bitwise": same}
+    sysdef, entry = get_system("lorenz"), CAT["lorenz"]
+    p, h, nsteps = sysdef.params_array(), entry.h_max, n_samples * sps
+    ic = np.tile(entry.initial_condition, 2)
+    _lorenz_scalar_pair(ic.copy(), p, h, 10)
+    t = best_time(lambda: _lorenz_scalar_pair(ic.copy(), p, h, nsteps), repeats)
+    res["lorenz_x2"] = {"ns_per_state_step": t / (2 * nsteps) * 1e9}
     return res
 
 
@@ -362,22 +415,11 @@ def measure_config(
         for pos in range(0, n_total, chunk):
             sl = slice(pos, pos + chunk)
             render_tuned(
-                sysdef.rhs,
-                x,
-                p,
-                sysdef.modulated_index,
-                p_values[sl],
-                dtau[sl],
-                entry.h_max,
-                sysdef.wrap_mask(),
-                entry.bounds_lo,
-                entry.bounds_hi,
-                x_init,
-                traj[sl],
-            )
+                sysdef.rhs, x, p, sysdef.modulated_index, p_values[sl], dtau[sl], entry.h_max,
+                sysdef.wrap_mask(), entry.bounds_lo, entry.bounds_hi, x_init, traj[sl],
+            )  # fmt: skip
 
     tk_whole = best_time(lambda: kernel(n_total), repeats)
-    tk_128 = best_time(lambda: kernel(QUANTUM), repeats)
     total_instr = sum(acc.values())
     return {
         "system": system,
@@ -392,7 +434,6 @@ def measure_config(
         "t_process_128": t128,
         "t_process_512": t512,
         "t_kernel_whole": tk_whole,
-        "t_kernel_128": tk_128,
         "ns_per_step_in_kernel": tk_whole / steps * 1e9,
         "rtf_process_128": seconds / t128,
         "rtf_process_512": seconds / t512,
@@ -468,10 +509,12 @@ def bench_config(quick: bool) -> dict[str, Any]:
                 "p_min": e.p_min,
                 "p_max": e.p_max,
                 "u_default": e.u_default,
+                "u_worst": u_worst(name),
                 "u_grid": e.u_grid.tolist(),
                 "period": e.period_table.tolist(),
                 "mean": e.observables[obs].mean.tolist(),
                 "std": e.observables[obs].std.tolist(),
+                "peak": e.observables[obs].peak.tolist(),
                 "obs": s.variable_index(obs),
                 "ref_steps": refs[name][0],
                 "ref_x": refs[name][1],
@@ -479,29 +522,46 @@ def bench_config(quick: bool) -> dict[str, Any]:
         )
     # Box-level check: the first 0.1 s of the Python block, every 10th sample (left channel).
     validation = []
-    n_val, stride = 4800, 10
-    for system, note, modulated in (
-        ("lorenz", "A3", False),
-        ("lorenz", "A3", True),
-        ("rossler", "A5", True),
-        ("duffing", "A3", True),
+    n_val, stride, n_short = 4800, 10, 480
+    t = np.arange(n_val) / FS
+    pitch_wobble = 0.5 + 0.4 * np.sin(2 * np.pi * 20.0 * t)  # 20 Hz pitch wobble, A2..C4
+    for system, note, modulated, pitch, linear in (
+        ("lorenz", "A3", False, False, False),
+        ("lorenz", "A3", True, False, False),
+        ("lorenz", "A3", True, True, False),
+        ("lorenz", "A3", True, False, True),
+        ("rossler", "A5", True, False, False),
+        ("chua", "A5", True, False, False),
+        ("rikitake", "A5", True, False, False),
+        ("duffing", "A3", True, False, False),
     ):
-        b = make_block(system, note)
+        kw: dict[str, Any] = {"pitch_min": "A2", "pitch_max": "C4"} if pitch else {}
+        if linear:
+            kw["amp_curve"] = "linear"
+        b = make_block(system, note, **kw)
         x_init = b._x.tolist()
         u = lfo(n_val) if modulated else None
-        out = b.process(n_val, {"param": u, "amp": None})["out"][:, 0]
-        validation.append(
-            {
-                "system": system,
-                "note": note,
-                "f0": note_to_hz(note),
-                "modulated": modulated,
-                "x_init": x_init,
-                "n_samples": n_val,
-                "stride": stride,
-                "expected": out[::stride].tolist(),
+        q = pitch_wobble if pitch else None
+        out = b.process(n_val, {"param": u, "amp": None, "pitch": q})["out"][:, 0]
+        row = {
+            "system": system,
+            "note": note,
+            "f0": note_to_hz(note),
+            "modulated": modulated,
+            "x_init": x_init,
+            "n_samples": n_val,
+            "short_samples": n_short,
+            "stride": stride,
+            "expected": out[::stride].tolist(),
+            "linear": linear,
+        }
+        if pitch:
+            row |= {
+                "pitch_signal": pitch_wobble.tolist(),
+                "midi_min": b.midi_min,
+                "midi_max": b.midi_max,
             }
-        )
+        validation.append(row)
     b = make_block("lorenz", "A3")
     return {
         "quick": quick,
@@ -510,9 +570,11 @@ def bench_config(quick: bool) -> dict[str, Any]:
         "lfo_period_s": LFO_PERIOD_S,
         "alpha": b._alpha,
         "dc_r": b._dc_r,
-        "notes": [{"name": n, "f0": note_to_hz(n)} for n in NOTES],
+        "amp_exponent": AMP_EXPONENT,
+        "pitch_q": PITCH_Q,
+        "notes": [{"name": n, "f0": note_to_hz(n), "midi": note_to_midi(n)} for n in NOTES],
         "multibox": multibox_scenarios(),
-        "multibox_seconds": 0.5 if quick else 1.0,
+        "multibox_seconds": 1.0 if quick else LFO_PERIOD_S,
         "systems": systems,
         "box_validation": validation,
     }
@@ -521,17 +583,69 @@ def bench_config(quick: bool) -> dict[str, Any]:
 def multibox_scenarios() -> list[dict[str, Any]]:
     """Patches of many boxes for the JS multi-box test (all boxes LFO-modulated)."""
     a3 = [[name, note_to_hz("A3")] for name in SYSTEMS]
+    a7 = [[name, note_to_hz("A7")] for name in SYSTEMS]
     grid = [[name, note_to_hz(n)] for n in NOTES for name in SYSTEMS]
     return [
         {"label": "5 boxes: each system at A3", "boxes": a3},
         {"label": "40 boxes: 8 of each system at A3", "boxes": a3 * 8},
         {"label": "20 boxes: every system x {A1,A3,A5,A7}", "boxes": grid},
         {"label": "40 boxes: 2 x every system x {A1,A3,A5,A7}", "boxes": grid * 2},
-        {
-            "label": "10 boxes: Thomas at A7 (most expensive)",
-            "boxes": [["thomas", note_to_hz("A7")]] * 10,
-        },
+        {"label": "16 boxes at A7: 3 of each system + 1 Lorenz", "boxes": a7 * 3 + a7[:1]},
     ]
+
+
+def _median(xs: list[float]) -> float:
+    return float(statistics.median(xs))
+
+
+def merge_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Combine repeated JS runs (separate processes) into one result with the spread.
+
+    Step costs: ``key`` is the minimum over runs, ``key_max`` the maximum. Box and multi-box
+    rows: ``us_per_quantum`` (min), ``us_median``, ``us_max`` over every timed repetition of
+    every run; tail statistics of the per-quantum distribution are the median over runs
+    (``max`` is the maximum).
+    """
+    out = json.loads(json.dumps(runs[0]))
+    for i, row in enumerate(out["step"]):
+        for k, v in list(row.items()):
+            if isinstance(v, float):
+                vals = [r["step"][i][k] for r in runs]
+                row[k], row[k + "_max"] = min(vals), max(vals)
+    for key in ("box", "multibox"):
+        for i, row in enumerate(out[key]):
+            reps = [x for r in runs for x in r[key][i]["us_per_quantum_reps"]]
+            row["us_per_quantum"] = min(reps)
+            row["us_median"] = _median(reps)
+            row["us_max"] = max(reps)
+            row["us_per_quantum_reps"] = reps
+            dists = [r[key][i]["dist_us"] for r in runs]
+            row["dist_us"] = {
+                s: (max if s == "max" else _median)([d[s] for d in dists]) for s in dists[0]
+            }
+            if key == "box":
+                row["ns_per_sample"] = row["us_median"] * 1e3 / QUANTUM
+                row["realtime_factor"] = BUDGET_US / row["us_median"]
+    for i, row in enumerate(out.get("deopt", [])):
+        # JIT test: per block of quanta, the median, min and max over runs.
+        blocks = list(zip(*(r["deopt"][i]["blocks_us"] for r in runs), strict=True))
+        row["blocks_us"] = [_median(list(b)) for b in blocks]
+        row["blocks_us_min"] = [min(b) for b in blocks]
+        row["blocks_us_max"] = [max(b) for b in blocks]
+    out["validation"] = [
+        {
+            **v,
+            **{
+                k: max(r["validation"][j][k] for r in runs)
+                for k in v
+                if k.startswith("max_abs_diff")
+            },
+        }
+        for j, v in enumerate(runs[0]["validation"])
+    ]
+    out["timer_resolution_us"] = max(r.get("timer_resolution_us", 0.0) for r in runs)
+    out["runs_merged"] = len(runs)
+    return out
 
 
 def attach_js_metadata(res: dict[str, Any], cfg: dict[str, Any]) -> None:
@@ -543,54 +657,84 @@ def attach_js_metadata(res: dict[str, Any], cfg: dict[str, Any]) -> None:
         m["box_list"] = scen["boxes"]
 
 
-LOWER_IS_BETTER = ("us_per_quantum", "ns_per_sample", "ns_per_step", "ns_per_state_step")
+def _parse_result(stdout: str) -> dict[str, Any] | None:
+    lines = [ln for ln in html.unescape(stdout).splitlines() if "RESULT_JSON " in ln]
+    if not lines:
+        return None
+    text = lines[-1].split("RESULT_JSON ", 1)[1]
+    text = text[: text.rfind("}") + 1]
+    result: dict[str, Any] = json.loads(text)
+    return result
 
 
-def merge_min(runs: list[dict[str, Any]]) -> dict[str, Any]:
-    """Combine repeated JS runs: keep the fastest value of every timing (min over runs)."""
-    out = json.loads(json.dumps(runs[0]))
-    for key in ("step", "box", "multibox", "deopt"):
-        for i, row in enumerate(out.get(key, [])):
-            for k, v in row.items():
-                if isinstance(v, float) and k.startswith(LOWER_IS_BETTER):
-                    row[k] = min(r[key][i][k] for r in runs)
-                elif k == "realtime_factor":
-                    row[k] = max(r[key][i][k] for r in runs)
-    out["runs_merged"] = len(runs)
-    return out
+def chrome_command(cfg_e: dict[str, Any], profile: Path) -> list[str]:
+    """Headless Chrome running rk4_bench.js in a page (V8, with a throwaway profile)."""
+    page = OUT / "bench_headless.html"
+    rel = os.path.relpath(BENCH_JS, OUT)
+    page.write_text(
+        "<!doctype html>\n<html><head><meta charset='utf-8'><title>RK4 bench</title></head>"
+        "<body>\n<script src='bench_config.js'></script>\n"
+        f"<script src='{rel}'></script>\n<pre id='out'></pre>\n<script>"
+        "document.getElementById('out').textContent = 'RESULT' + '_JSON ' + "
+        "JSON.stringify(BENCH_RESULTS);</script>\n</body></html>\n"
+    )
+    return [
+        str(CHROME),
+        "--headless",
+        "--disable-gpu",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-extensions",
+        "--disable-sync",
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-renderer-backgrounding",
+        "--disable-background-timer-throttling",
+        "--allow-file-access-from-files",
+        f"--user-data-dir={profile}",
+        "--dump-dom",
+        page.as_uri(),
+    ]
 
 
-def run_js(cfg: dict[str, Any], n_runs: int) -> list[dict[str, Any]]:
-    """Run rk4_bench.js ``n_runs`` times with every JS engine available (fastest values kept)."""
+def run_js(cfg: dict[str, Any], n_runs: int, chrome: bool) -> list[dict[str, Any]]:
+    """Run rk4_bench.js with every JS engine available (``n_runs`` processes each)."""
     cfg_json = OUT / "bench_config.json"
     cfg_js = OUT / "bench_config.js"
-    runners = []
+    runners: list[tuple[str, Callable[[Path], list[str]], int]] = []
     node = shutil.which("node")
     if node:
-        runners.append(("node", [node, str(BENCH_JS), str(cfg_json)]))
+        runners.append(
+            ("node", lambda _p: [node, "--no-warnings", str(BENCH_JS), str(cfg_json)], n_runs)
+        )
     if JSC.exists():
-        runners.append(("jsc", [str(JSC), str(cfg_js), str(BENCH_JS)]))
+        runners.append(("jsc", lambda _p: [str(JSC), str(cfg_js), str(BENCH_JS)], n_runs))
+    if chrome and CHROME.exists():
+        runners.append(("chrome", lambda p: chrome_command(dict(cfg, engine="chrome"), p), 1))
     results = []
-    for engine, cmd in runners:
+    for engine, cmd, runs_wanted in runners:
         cfg_e = dict(cfg, engine=engine)
         cfg_json.write_text(json.dumps(cfg_e))
         cfg_js.write_text("var BENCH_CONFIG = " + json.dumps(cfg_e) + ";\n")
         t0 = time.perf_counter()
         runs = []
-        for _ in range(n_runs):
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=False)
-            lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("RESULT_JSON ")]
-            if proc.returncode != 0 or not lines:
+        for _ in range(runs_wanted):
+            with tempfile.TemporaryDirectory() as profile:
+                proc = subprocess.run(
+                    cmd(Path(profile)), capture_output=True, text=True, timeout=900, check=False
+                )
+            parsed = _parse_result(proc.stdout)
+            if proc.returncode != 0 or parsed is None:
                 print(f"[js] {engine} failed:\n{proc.stdout[-2000:]}\n{proc.stderr[-2000:]}")
                 break
-            runs.append(json.loads(lines[-1][len("RESULT_JSON ") :]))
+            runs.append(parsed)
         if not runs:
             continue
-        res = merge_min(runs)
+        res = merge_runs(runs)
         attach_js_metadata(res, cfg)
         res["wall_s"] = time.perf_counter() - t0
         (OUT / f"js_{engine}.json").write_text(json.dumps(res, indent=1))
-        print(f"[js] {engine}: done in {res['wall_s']:.1f} s")
+        print(f"[js] {engine}: {len(runs)} run(s) in {res['wall_s']:.1f} s")
         results.append(res)
     if not runners:
         print("[js] no JavaScript engine found (node, jsc); JS numbers must be estimated")
@@ -598,8 +742,81 @@ def run_js(cfg: dict[str, Any], n_runs: int) -> list[dict[str, Any]]:
 
 
 # ------------------------------------------------------------------------------------
-# report helpers
+# analysis and report helpers
 # ------------------------------------------------------------------------------------
+
+
+def substep_table(res: dict[str, Any]) -> list[dict[str, Any]]:
+    """Per system: P ratios, n at the default and worst knob per note, LFO n (measured)."""
+    rows = []
+    for name in SYSTEMS:
+        e = CAT[name]
+        pmin = float(e.period_table.min())
+        row: dict[str, Any] = {
+            "system": name,
+            "p_def_over_p_min": float(e.period(e.u_default)) / pmin,
+            "p_max_over_p_min": float(e.period_table.max()) / pmin,
+            "u_default": e.u_default,
+            "u_worst": u_worst(name),
+        }
+        for note in NOTES:
+            f0 = note_to_hz(note)
+            n_def = substeps(name, e.u_default, f0)
+            cont = e.steps_per_period * float(e.period(e.u_default)) / pmin * f0 / FS
+            lfo_c = next(
+                c for c in res["configs"] if c["system"] == name and c["note"] == note
+                and c["modulated"]
+            )  # fmt: skip
+            row[note] = {
+                "n_default": n_def,
+                "n_worst": substeps(name, u_worst(name), f0),
+                "n_lfo_mean": lfo_c["substeps_mean"],
+                "n_lfo_min": lfo_c["substeps_min"],
+                "n_lfo_max": lfo_c["substeps_max"],
+                "rounding_factor": n_def / cont,
+                "n_default_44k1": substeps(name, e.u_default, f0, 44_100.0),
+            }
+        rows.append(row)
+    return rows
+
+
+def overhead_fit(js: dict[str, Any], table: list[dict[str, Any]]) -> dict[str, Any]:
+    """Fit ns/sample = c0 + c1·n per system on the JS 'default' and 'worst' box rows.
+
+    c1 is the step cost inside the box, c0 the per-sample bookkeeping that is not hidden
+    behind the RK4 chain. Also the extra ns/sample of a pitch cable ('pitch' − 'default') and
+    of the perceptual amp curve ('default' − 'linear'), and c0 refitted on the 'linear' rows.
+    """
+    tab = {r["system"]: r for r in table}
+    out = {}
+    for name in SYSTEMS:
+        ns, nn, ns_lin, nn_lin = [], [], [], []
+        pitch_extra, pow_extra = {}, {}
+        for b in js["box"]:
+            if b["system"] != name:
+                continue
+            nt = tab[name][b["note"]]
+            if b["mode"] in ("default", "worst"):
+                nn.append(nt["n_default"] if b["mode"] == "default" else nt["n_worst"])
+                ns.append(b["us_median"] * 1e3 / QUANTUM)
+            if b["mode"] == "linear":
+                nn_lin.append(nt["n_default"])
+                ns_lin.append(b["us_median"] * 1e3 / QUANTUM)
+        for note in NOTES:
+            rows = {b["mode"]: b for b in js["box"] if b["system"] == name and b["note"] == note}
+            us = {m: rows[m]["us_median"] for m in ("pitch", "default", "linear")}
+            pitch_extra[note] = (us["pitch"] - us["default"]) * 1e3 / QUANTUM
+            pow_extra[note] = (us["default"] - us["linear"]) * 1e3 / QUANTUM
+        c1, c0 = np.polyfit(np.array(nn, float), np.array(ns), 1)
+        c0_lin = float(np.mean(np.array(ns_lin) - c1 * np.array(nn_lin, float)))
+        out[name] = {
+            "c0_ns": float(c0),
+            "c1_ns": float(c1),
+            "c0_linear_ns": c0_lin,
+            "pitch_extra_ns": pitch_extra,
+            "perceptual_extra_ns": pow_extra,
+        }
+    return out
 
 
 def md_table(header: list[str], rows: list[list[Any]]) -> str:
@@ -612,34 +829,62 @@ def summarize(res: dict[str, Any], js: list[dict[str, Any]]) -> str:
     parts = []
     env = res["env"]
     parts.append(
-        f"Machine: {env['cpu']}, {env['python']}, numba {env['numba']}, numpy {env['numpy']}. "
-        f"Load average before/after: {env['load_before']} / {env['load_after']}."
+        f"Engine chaotic_sound {env['engine_version']}, catalog generated "
+        f"{env['catalog_generated']}. Machine: {env['cpu']}, Python {env['python']}, numba "
+        f"{env['numba']}, numpy {env['numpy']}. Load average before/after: "
+        f"{env['load_before']} / {env['load_after']}."
     )
-    parts.append("\n### Pure RK4 step (ns), numba vs JS\n")
-    hdr = ["system", "numba (engine)"]
+    parts.append("\n### Sub-steps per sample (catalog; LFO columns measured)\n")
+    rows = []
+    for r in res["substeps"]:
+        cells = [r["system"], f"{r['p_def_over_p_min']:.3f}", f"{r['p_max_over_p_min']:.3f}"]
+        for note in NOTES:
+            c = r[note]
+            cells.append(
+                f"{c['n_default']} / {c['n_worst']} / {c['n_lfo_mean']:.1f} "
+                f"({c['n_lfo_min']}–{c['n_lfo_max']}) ×{c['rounding_factor']:.2f}"
+            )
+        rows.append(cells)
+    parts.append(
+        md_table(
+            ["system", "P_def/P_min", "P_max/P_min"]
+            + [f"{n}: default / worst / LFO mean (min–max) ×ceil" for n in NOTES],
+            rows,
+        )
+    )
+    parts.append("\n### Pure RK4 step (ns): numba engine, numba scalar, JS (min–max over runs)\n")
+    hdr = ["system", "numba engine", "numba scalar (bitwise)"]
     for r in js:
-        hdr += [
-            f"{r['engine']} A spec.",
-            f"{r['engine']} B mono",
-            f"{r['engine']} B mega",
-            f"{r['engine']} 1 state",
-            f"{r['engine']} 2 interleaved (per state)",
-        ]
+        e = r["engine"]
+        hdr += [f"{e} A spec.", f"{e} B mono", f"{e} B mega", f"{e} 1 st.", f"{e} 2 interl."]
     rows = []
     for name in SYSTEMS:
-        row = [name, f"{res['pure_step_ns'][name]:.1f}"]
+        ns = res["native_scalar"][name]
+        row = [
+            name,
+            f"{res['pure_step_ns'][name]:.1f}",
+            f"{ns['ns_per_step']:.1f} ({ns['bitwise']})",
+        ]
         for r in js:
             s = next(x for x in r["step"] if x["system"] == name)
+
+            def mm(k: str, s: dict[str, Any] = s) -> str:
+                hi = s.get(k + "_max", s[k])
+                return f"{s[k]:.1f}–{hi:.1f}" if hi > s[k] * 1.005 else f"{s[k]:.1f}"
+
             row += [
-                f"{s['ns_per_step_A_specialized']:.1f}",
-                f"{s['ns_per_step_B_generic_mono']:.1f}",
-                f"{s['ns_per_step_B_generic_mega']:.1f}",
-                f"{s.get('ns_per_state_step_interleaved_1', float('nan')):.1f}",
-                f"{s.get('ns_per_state_step_interleaved_2', float('nan')):.1f}",
+                mm("ns_per_step_A_specialized"),
+                mm("ns_per_step_B_generic_mono"),
+                mm("ns_per_step_B_generic_mega"),
+                mm("ns_per_state_step_interleaved_1"),
+                mm("ns_per_state_step_interleaved_2"),
             ]
         rows.append(row)
     parts.append(md_table(hdr, rows))
-    parts.append("\nNative ceiling (numba, scalar locals): " + json.dumps(res["native_scalar"]))
+    parts.append(
+        f"\nnumba scalar, 2 Lorenz states interleaved: "
+        f"{res['native_scalar']['lorenz_x2']['ns_per_state_step']:.1f} ns per state-step."
+    )
 
     parts.append("\n### Python engine per configuration (4 s of audio)\n")
     rows = []
@@ -655,24 +900,20 @@ def summarize(res: dict[str, Any], js: list[dict[str, Any]]) -> str:
                 f"{c['rtf_process_512']:.0f}",
                 f"{c['rtf_process_128']:.0f}",
                 f"{100 * c['breakdown_128']['kernel']:.0f}",
+                f"{100 * c['breakdown_128']['controls']:.0f}",
+                c["instrumented_output_identical"],
             ]
         )
     parts.append(
         md_table(
             [
-                "system",
-                "note",
-                "mod",
-                "substeps mean (min–max)",
-                "ns/step in kernel",
-                "RTF kernel",
-                "RTF process@512",
-                "RTF process@128",
-                "kernel % @128",
+                "system", "note", "mod", "substeps mean (min–max)", "ns/step in kernel",
+                "RTF kernel", "RTF process@512", "RTF process@128", "kernel % @128",
+                "controls % @128", "instr. identical",
             ],
             rows,
         )
-    )
+    )  # fmt: skip
     co = res["call_overhead"]
     parts.append(
         f"\nprocess() per-call fixed cost ≈ {co['fit_us_per_call_fixed']:.1f} µs, "
@@ -681,47 +922,112 @@ def summarize(res: dict[str, Any], js: list[dict[str, Any]]) -> str:
     )
     for r in js:
         parts.append(
-            f"\n### JS full box, {r['engine']} (µs per 128-sample quantum; budget "
-            f"{BUDGET_US:.0f} µs)\n"
+            f"\n### JS full box, {r['engine']} ({r.get('runs_merged', 1)} run(s); timer "
+            f"resolution {r.get('timer_resolution_us', float('nan')):.2f} µs). µs per "
+            f"128-sample quantum; budget {BUDGET_US:.0f} µs\n"
+        )
+        parts.append(
+            "mean = min / median / max over all timed repetitions; p99, max and peak16 (largest "
+            "16-quantum moving average) from the per-quantum rep; boxes = ⌊1333 µs / median⌋ "
+            "(rounded down: a fraction of a box does not fit).\n"
         )
         rows = []
         for b in r["box"]:
+            d = b["dist_us"]
             rows.append(
                 [
                     b["system"],
                     b["note"],
-                    "LFO" if b["modulated"] else "-",
-                    f"{b['us_per_quantum']:.1f}",
+                    b["mode"],
+                    f"{b['us_per_quantum']:.1f} / {b['us_median']:.1f} / {b['us_max']:.1f}",
+                    f"{d['p99']:.1f}",
+                    f"{d['max']:.0f}",
+                    f"{d['peak16']:.1f}",
                     f"{b['ns_per_sample']:.0f}",
-                    f"{b['realtime_factor']:.0f}",
-                    f"{0.5 * BUDGET_US / b['us_per_quantum']:.0f}",
+                    f"{math.floor(HALF_BUDGET_US / b['us_median'])}",
+                    b["resets"],
                 ]
             )
         parts.append(
             md_table(
-                ["system", "note", "mod", "µs/quantum", "ns/sample", "RTF", "boxes @50 % core"],
+                [
+                    "system", "note", "mode", "mean µs (min/med/max)", "p99", "max", "peak16",
+                    "ns/sample", "boxes @50 %", "resets",
+                ],
                 rows,
             )
-        )
-        parts.append("\nMulti-box (LFO on all boxes; 'sum of singles' adds the table above):\n")
-        lut = {(b["system"], round(b["f0"], 6)): b for b in r["box"] if b["modulated"]}
+        )  # fmt: skip
+        if r["engine"] in res.get("overhead_fit", {}):
+            parts.append("\nPer-sample model ns/sample = c0 + c1·n (default + worst rows):\n")
+            fit = res["overhead_fit"][r["engine"]]
+            parts.append(
+                md_table(
+                    ["system", "c0 (ns)", "c1 (ns/step)", "c0 linear amp (ns)"]
+                    + [f"pitch cable extra {n} (ns)" for n in NOTES]
+                    + [f"a^1.661 extra {n} (ns)" for n in NOTES],
+                    [
+                        [k, f"{v['c0_ns']:.1f}", f"{v['c1_ns']:.1f}", f"{v['c0_linear_ns']:.1f}"]
+                        + [f"{v['pitch_extra_ns'][n]:.1f}" for n in NOTES]
+                        + [f"{v['perceptual_extra_ns'][n]:.1f}" for n in NOTES]
+                        for k, v in fit.items()
+                    ],
+                )
+            )
+        parts.append("\nMulti-box (LFO on all boxes, 4 s = one LFO cycle):\n")
+        lut = {(b["system"], round(b["f0"], 6)): b for b in r["box"] if b["mode"] == "lfo"}
         rows = []
         for m in r["multibox"]:
-            pred = sum(lut[(n, round(f0, 6))]["us_per_quantum"] for n, f0 in m["box_list"])
+            pred = sum(lut[(n, round(f0, 6))]["us_median"] for n, f0 in m["box_list"])
+            d = m["dist_us"]
             rows.append(
                 [
                     m["label"],
-                    f"{m['us_per_quantum']:.0f}",
+                    f"{m['us_per_quantum']:.0f} / {m['us_median']:.0f} / {m['us_max']:.0f}",
                     f"{pred:.0f}",
-                    f"{m['us_per_quantum'] / m['boxes']:.1f}",
-                    f"{100 * m['us_per_quantum'] / BUDGET_US:.0f}",
+                    f"{d['peak16']:.0f}",
+                    f"{d['p99']:.0f}",
+                    f"{d['max']:.0f}",
+                    f"{100 * m['us_median'] / BUDGET_US:.0f}",
+                    f"{100 * d['peak16'] / BUDGET_US:.0f}",
                 ]
             )
         parts.append(
-            md_table(["patch", "µs/quantum", "sum of singles", "µs/box", "% of budget"], rows)
-        )
-        if r.get("deopt"):
-            parts.append("\nJIT type pollution (Rössler A1, static): " + json.dumps(r["deopt"]))
+            md_table(
+                [
+                    "patch", "mean µs (min/med/max)", "sum of single medians", "peak16", "p99",
+                    "max", "% budget (median)", "% budget (peak16)",
+                ],
+                rows,
+            )
+        )  # fmt: skip
+        jit = [d for d in r.get("deopt", []) if "blocks_us" in d]
+        if jit:
+            parts.append(
+                f"\nJIT warm-up and control-input type (Rössler A1, static knob; fresh code "
+                f"copies in this order; µs per quantum in blocks of {jit[0]['block_quanta']} "
+                "quanta, median (min–max) over runs):\n"
+            )
+            rows = []
+            for d in jit:
+                nb = d["blocks_per_input"]
+                for j, kind in enumerate(d["inputs"]):
+                    sl = slice(j * nb, (j + 1) * nb)
+                    cells = zip(
+                        d["blocks_us"][sl],
+                        d.get("blocks_us_min", d["blocks_us"])[sl],
+                        d.get("blocks_us_max", d["blocks_us"])[sl],
+                        strict=True,
+                    )
+                    rows.append(
+                        [" → ".join(d["inputs"]), kind]
+                        + [f"{m:.2f} ({lo:.2f}–{hi:.2f})" for m, lo, hi in cells]
+                    )
+            nb = jit[0]["blocks_per_input"]
+            parts.append(
+                md_table(["copy (inputs)", "input"] + [f"block {k + 1}" for k in range(nb)], rows)
+            )
+        elif r.get("deopt"):  # an older result file
+            parts.append("\nJIT test (older format): " + json.dumps(r["deopt"]))
         parts.append("\nValidation: " + json.dumps(r["validation"]))
     return "\n".join(parts) + "\n"
 
@@ -738,24 +1044,25 @@ def plot(res: dict[str, Any], js: list[dict[str, Any]]) -> None:
     }
     for key, m in markers.items():
         frac = np.array([c[key] / c["seconds"] for c in configs])
-        ax.scatter(ss, 100 * frac, marker=m, label=labels[key], alpha=0.8)
-    for r in js:
-        lut = {(b["system"], b["note"], b["modulated"]): b for b in r["box"]}
+        ax.scatter(ss, 100 * frac, marker=m, label=labels[key], alpha=0.6)
+    tab = {r["system"]: r for r in res["substeps"]}
+    for r, mk in zip(js, ("x", "+", "1"), strict=False):
         xs, ys = [], []
-        for c in configs:
-            b = lut.get((c["system"], c["note"], c["modulated"]))
-            if b:
-                xs.append(c["substeps_mean"])
-                ys.append(100 / b["realtime_factor"])
-        ax.scatter(xs, ys, marker="x", label=f"JS full box ({r['engine']}), 128-sample quanta")
+        for b in r["box"]:
+            if b["mode"] not in ("default", "worst"):
+                continue
+            nt = tab[b["system"]][b["note"]]
+            xs.append(nt["n_default"] if b["mode"] == "default" else nt["n_worst"])
+            ys.append(100 * b["us_median"] / BUDGET_US)
+        ax.scatter(xs, ys, marker=mk, s=40, label=f"JS full box ({r['engine']}), 128-sample quanta")
     ax.axhline(100, color="k", lw=0.8)
     ax.axhline(50, color="k", lw=0.8, ls="--")
     ax.text(1.02, 52, "50 % of one core", fontsize=8)
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel("RK4 sub-steps per sample (mean over the render)")
+    ax.set_xlabel("RK4 sub-steps per sample")
     ax.set_ylabel("CPU time per second of audio (% of one core), one box")
-    ax.set_title("Cost of one dynamical box at 48 kHz (A1, A3, A5, A7; static and LFO)")
+    ax.set_title("Cost of one dynamical box at 48 kHz, engine v0.3 (A1–A7)", fontsize=10)
     ax.grid(True, which="both", alpha=0.3)
     ax.legend(fontsize=8)
     fig.tight_layout()
@@ -778,7 +1085,7 @@ def plot(res: dict[str, Any], js: list[dict[str, Any]]) -> None:
     ax.set_ylim(0, 108)
     ax.set_ylabel("% of process() time")
     ax.set_title(
-        "Python Dynamical.process(), 128-sample chunks, static knob (top: µs per chunk)",
+        "Python Dynamical.process() (v0.3), 128-sample chunks, static knob (top: µs per chunk)",
         fontsize=10,
     )
     ax.legend(fontsize=8, loc="upper left", bbox_to_anchor=(1.0, 1.0))
@@ -790,45 +1097,14 @@ def plot(res: dict[str, Any], js: list[dict[str, Any]]) -> None:
 # ------------------------------------------------------------------------------------
 
 
-def js_only(n_runs: int) -> None:
-    """Rerun only the JS benchmark and merge it into the previous results (see --js-only)."""
-    res = json.loads((OUT / "results.json").read_text())
-    cfg = bench_config(quick=False)
-    old = {r["engine"]: r for r in res["js"]}
-    new = run_js(cfg, n_runs)
-    for r in new:
-        if r["engine"] in old:
-            merged = merge_min([old[r["engine"]], r])
-            merged["runs_merged"] = old[r["engine"]].get("runs_merged", 1) + r["runs_merged"]
-            attach_js_metadata(merged, cfg)
-            (OUT / f"js_{r['engine']}.json").write_text(json.dumps(merged, indent=1))
-            old[r["engine"]] = merged
-        else:
-            old[r["engine"]] = r
-    res["js"] = list(old.values())
-    res["env"]["load_js_only"] = [round(x, 2) for x in os.getloadavg()]
-    (OUT / "results.json").write_text(json.dumps(res, indent=1))
-    summary = summarize(res, res["js"])
-    (OUT / "summary.md").write_text(summary)
-    plot(res, res["js"])
-    print(summary)
-
-
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--quick", action="store_true", help="1 s renders, fewer repeats")
     ap.add_argument("--no-js", action="store_true", help="skip the JavaScript benchmark")
     ap.add_argument(
-        "--js-only",
-        type=int,
-        metavar="N",
-        help="reuse results.json, run the JS benchmark N more times and merge (min) with the "
-        "existing js_<engine>.json, then rewrite summary and figures",
+        "--chrome", action="store_true", help="also run the JS benchmark once in headless Chrome"
     )
     args = ap.parse_args()
-    if args.js_only:
-        js_only(args.js_only)
-        return
     seconds = 1.0 if args.quick else 4.0
     repeats = 2 if args.quick else 3
     t_start = time.perf_counter()
@@ -842,6 +1118,9 @@ def main() -> None:
         or platform.processor()
     )
     env = {
+        "engine_version": chaotic_sound.__version__,
+        "catalog": str(default_catalog_path()),
+        "catalog_generated": CAT.metadata.get("generated"),
         "cpu": cpu,
         "python": platform.python_version(),
         "numba": numba.__version__,
@@ -873,17 +1152,21 @@ def main() -> None:
     res["call_overhead"] = call_overhead(repeats)
     res["patch"] = {k: round(v, 1) for k, v in patch_render(seconds, repeats).items()}
     print("call overhead:", res["call_overhead"], "patch:", res["patch"])
+    res["substeps"] = substep_table(res)
     env["load_after"] = [round(x, 2) for x in os.getloadavg()]
 
     cfg = bench_config(args.quick)
-    js = [] if args.no_js else run_js(cfg, n_runs=1 if args.quick else 3)
+    js = [] if args.no_js else run_js(cfg, 1 if args.quick else 3, args.chrome)
     for f in sorted(OUT.glob("js_*.json")):  # include hand-added runs (e.g. a browser)
-        if f.stem[3:] not in {r["engine"] for r in js}:
+        if f.stem[3:] not in {r["engine"] for r in js} and not args.no_js:
             extra = json.loads(f.read_text())
             if "box_list" not in extra["multibox"][0]:
                 attach_js_metadata(extra, cfg)
-            js.append(extra)
+            if "us_median" in extra["box"][0]:
+                js.append(extra)
     res["js"] = js
+    res["overhead_fit"] = {r["engine"]: overhead_fit(r, res["substeps"]) for r in js}
+    env["load_end"] = [round(x, 2) for x in os.getloadavg()]
     res["wall_s"] = time.perf_counter() - t_start
     (OUT / "results.json").write_text(json.dumps(res, indent=1))
     summary = summarize(res, js)

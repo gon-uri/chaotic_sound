@@ -1,16 +1,21 @@
 """Study: aliasing versus note (when does a dynamical box need oversampling?).
 
-Usage (from ``lab/``; about 6 minutes)::
+Engine v0.3 (perceptual amp curve, peak-limited level normalization, parameter slew of
+max(5 ms, 2 periods), pitch input) and the catalog in ``catalog/systems.json``; the five v1
+systems are Lorenz, Rössler, Chua, Rikitake and Duffing.
+
+Usage (from ``lab/``; about 8 minutes)::
 
     caffeinate -is uv run python scripts/studies/aliasing.py
     uv run python scripts/studies/aliasing.py --dc-check     # side check only (~1 min)
+    uv run python scripts/studies/aliasing.py --side-checks  # variability, table nodes (~1 min)
 
 Question
 --------
 The engine point-samples the continuous tuned trajectory x(k·t) at fs, with no anti-alias
-filter (spec §4.2 steps 5–6). Whatever power the trajectory has above fs/2 folds back into
-the band. For which notes, systems, observables and parameter values is that power large
-enough to matter, and what oversampling factor and decimator remove it?
+filter (spec §4.2 steps 6 and 7). Whatever power the trajectory has above
+fs/2 folds back into the band. For which notes, systems, observables and parameter values
+is that power large enough to matter, and what oversampling factor and decimator remove it?
 
 Method
 ------
@@ -26,16 +31,22 @@ Method
    - ``R_1_5k`` power folding into 1–5 kHz / signal power in 1–5 kHz;
    - ``R_A``    A-weighted folded power / A-weighted signal power (20 Hz–24 kHz);
    - per 1/3-octave band b (25 Hz … 20 kHz): folded power A_b, signal power S_b, the local
-     ratio L_b = A_b / S_b (``L_max`` = worst band) and the alias level in dBFS;
+     ratio L_b = A_b / S_b (``L_max`` = worst band; ``L10`` = worst band centred at or below
+     10 kHz, where hearing is sensitive) and the alias level in dBFS;
    - ``M_max``: a crude, conservative audibility screen. In each band the alias is compared
      with max(S_b − (14.5 + z_b) dB, threshold in quiet), z_b the band's Bark number
-     (tonal-masker offset of the MPEG psychoacoustic model 1, in-band masking only) and the
-     Terhardt threshold in quiet at the calibration "full-scale sine = 96 dB SPL". M_max is
-     the largest excess in dB; M_max ≤ 0 means "inaudible by this screen".
+     (Johnston's tone-masking-noise offset, Johnston 1988, checked only in secondary
+     sources; larger than the MPEG-1 model-1 tonal masking index 6.025 + 0.275·z dB;
+     in-band masking only)
+     and the Terhardt threshold in quiet at the calibration "full-scale sine = 96 dB SPL".
+     M_max is the largest excess in dB; M_max ≤ 0 means "inaudible by this screen".
 
    dBFS here is 20·log10(RMS) re 1.0 (a full-scale sine is −3 dBFS; the box's nominal RMS
-   0.25 is −12 dBFS). Band powers use the cumulative PSD (power spread uniformly within a
-   bin), so bands narrower than a bin are handled exactly to that approximation.
+   0.25 is −12 dBFS). Levels use the *measured* output power: since v0.3 the level is
+   min(0.25/σ, 0.8/π) per unit of the observable (π = robust peak), so spiky observables
+   (Rössler z, Rikitake x/y) play below −12 dBFS. Band powers use the cumulative PSD
+   (power spread uniformly within a bin), so bands narrower than a bin are handled exactly
+   to that approximation.
 2. **Checks.** (a) the A6, A7, C8 metrics are recomputed from 32× renders (content above
    192 kHz); (b) at A7 and C8 the PSD of a *native* 48 kHz render is compared with the
    prediction "high-rate PSD below 24 kHz + folded PSD".
@@ -54,6 +65,13 @@ Method
    (images at the internal rate, decimator gain at every preimage).
 5. **Direct checks (part D).** The scope-defining worst cases are re-rendered directly at
    the note where they cross a criterion, to confirm the universal-spectrum prediction.
+6. **Fast parameter modulation (part E).** The param input driven by a 0↔1 square wave
+   (20 Hz and 200 Hz) and a full-swing sine (2 Hz and 20 Hz) at A6 and A7, default
+   observable, compared with the worst static u of the universal scan. The v0.3 parameter
+   slew (time constant max(5 ms, 2/f0)) limits how abruptly u can move. The log-log PSD
+   slope over 30–150 kHz identifies a power-law (kink) tail. Kinks in the gain and offset
+   come from two places: table nodes (linear interpolation in u) and the one-pole's slope
+   break at each square edge.
 
 PSD estimator: Welch, Hann window, on the second difference of the signal ("prewhitening"),
 divided by |2 sin(πf/fs)|⁴, combined with the direct estimate below f0/2. Without
@@ -61,7 +79,7 @@ prewhitening, window leakage from the fundamental puts a false floor at −110 d
 −200 dB (Hann) in the 24 kHz fraction; with it the estimator floor is below −250 dB. Total
 power is the time-domain variance.
 
-Writes ``outputs/studies/aliasing/{results.json, dc_check.json, *.png}``.
+Writes ``outputs/studies/aliasing/{results.json, dc_check.json, side_checks.json, *.png}``.
 """
 
 from __future__ import annotations
@@ -93,14 +111,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import firwin, freqz, welch
 
-from chaotic_sound.blocks import Dynamical
-from chaotic_sound.catalog import load_default_catalog
+import chaotic_sound
+from chaotic_sound.blocks import BlockContext, Dynamical
+from chaotic_sound.catalog import default_catalog_path, load_default_catalog
 from chaotic_sound.pitch import hz_to_midi, note_to_hz
 from chaotic_sound.systems import get_system
 
 OUT_DIR = Path(__file__).resolve().parents[2] / "outputs" / "studies" / "aliasing"
 
-SYSTEMS = ("lorenz", "rossler", "chua", "thomas", "duffing")
+ENGINE = "v0.3"
+SYSTEMS = ("lorenz", "rossler", "chua", "rikitake", "duffing")
 NOTES = ("A1", "A2", "A3", "A4", "A5", "A6", "A7", "C8")
 FS = 48_000.0
 FS_441 = 44_100.0
@@ -119,13 +139,15 @@ THRESHOLDS_DB = (-40.0, -60.0, -80.0, -100.0)
 U_GRID = tuple(float(u) for u in np.linspace(0.0, 1.0, 9))
 SCAN_MIDI = tuple(range(45, 109))  # A2 … C8, every semitone
 FLOOR_DB = -150.0  # values below are reported as "< −150" (far below any audible effect)
-DC_BLOCK_HZ = 5.0  # spec §4.2 step 6 (checked against the block module at start-up)
+DC_BLOCK_HZ = 5.0  # spec §4.2 step 7 (checked against the block module at start-up)
 
 # Band-level audibility measures.
-OUT_MS = 0.25**2  # nominal mean square of a box at amp = 1 (spec §3): −12 dBFS
+OUT_MS = 0.25**2  # nominal mean square of a box at amp = 1 (spec §3): −12 dBFS. The actual
+# level is lower when the robust-peak limit applies (v0.3); levels use the measured power.
 SPL_PER_DBFS = 99.0  # calibration: full-scale sine (−3 dBFS) = 96 dB SPL
 ALIAS_FLOOR_DBFS = -130.0  # bands whose alias is below this are ignored in L_max
 L_CRIT_DB = -40.0  # local criterion: alias ≥ 40 dB below the signal in every band
+L10_FC_MAX = 10_000.0  # L10: only bands centred at or below this frequency
 CRIT_GLOBAL_DB = -80.0
 
 # Colors: fixed categorical order of the reference palette (light mode), one per system.
@@ -133,11 +155,13 @@ COLORS = {
     "lorenz": "#2a78d6",
     "rossler": "#eb6834",
     "chua": "#1baf7a",
-    "thomas": "#eda100",
+    "rikitake": "#eda100",
     "duffing": "#e87ba4",
 }
-LABELS = {"lorenz": "Lorenz", "rossler": "Rössler", "chua": "Chua", "thomas": "Thomas",
+LABELS = {"lorenz": "Lorenz", "rossler": "Rössler", "chua": "Chua", "rikitake": "Rikitake",
           "duffing": "Duffing"}  # fmt: skip
+MOD_SIGNALS = (("square", 20.0), ("square", 200.0), ("sine", 2.0), ("sine", 20.0))  # part E
+MOD_NOTES = ("A6", "A7")
 INK, INK2, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 
 NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
@@ -162,12 +186,17 @@ def db(x: float) -> float:
 
 
 def render(system: str, note: str, fs: float, seconds: float, *, seed: int, param=None,
-           observable=None, skip: float = T_SKIP) -> tuple[np.ndarray, Dynamical]:  # fmt: skip
-    """Mono output of one Dynamical block (left channel), start discarded."""
-    block = Dynamical("osc", catalog=CATALOG, system=system, note=note, seed=seed, param=param,
+           observable=None, skip: float = T_SKIP, param_signal=None,
+           ) -> tuple[np.ndarray, Dynamical]:  # fmt: skip
+    """Mono output of one Dynamical block (left channel), start discarded.
+
+    ``param_signal`` (optional, shape (n,)) drives the param input instead of the knob.
+    """
+    block = Dynamical("osc", context=CONTEXT, system=system, note=note, seed=seed, param=param,
                       observable=observable)  # fmt: skip
     block.reset(fs)
-    y = block.process(round(seconds * fs), {"param": None, "amp": None})["out"][:, 0]
+    n = round(seconds * fs)
+    y = block.process(n, {"param": param_signal, "amp": None, "pitch": None})["out"][:, 0]
     if block.resets:
         print(f"  WARNING: {block.resets} safety resets in {system} {note}")
     return y[round(skip * fs) :], block
@@ -304,25 +333,29 @@ class CumSpectrum:
     c: np.ndarray
     g: np.ndarray
     split: float  # intervals starting above this use g, below it c
+    ms: float  # mean square of the box output (full-scale units), for absolute levels
 
     @classmethod
     def from_psd(cls, f: np.ndarray, s: np.ndarray, total: float, split: float) -> CumSpectrum:
+        """Build from a one-sided PSD ``s`` on the uniform grid ``f``; ``total`` = variance."""
         df = f[1] - f[0]
         p = s * df / total
         edges = np.concatenate(([0.0], (np.arange(1, f.size + 1) - 0.5) * df))
         c = np.concatenate(([0.0], np.cumsum(p)))
         g = np.concatenate((np.cumsum(p[::-1])[::-1], [0.0]))
-        return cls(edges, c, g, split)
+        return cls(edges, c, g, split, float(total))
 
     def at(self, f0: float) -> CumSpectrum:
-        """A universal spectrum (axis in harmonics) evaluated at fundamental ``f0``."""
-        return CumSpectrum(self.edges * f0, self.c, self.g, self.split * f0)
+        """Evaluate a universal spectrum (axis in harmonics) at the fundamental ``f0``."""
+        return CumSpectrum(self.edges * f0, self.c, self.g, self.split * f0, self.ms)
 
     @property
     def f_max(self) -> float:
+        """Upper edge of the spectrum."""
         return float(self.edges[-1])
 
     def power(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        """Power fraction in the intervals [a, b] (element-wise)."""
         a = np.clip(a, 0.0, self.f_max)
         b = np.clip(b, 0.0, self.f_max)
         lower = np.interp(b, self.edges, self.c) - np.interp(a, self.edges, self.c)
@@ -342,14 +375,17 @@ class HalfBand:
     _h2: np.ndarray
 
     def gain2(self, f: np.ndarray) -> np.ndarray:
+        """Power gain |H(f)|² (f in Hz at the stage's input rate)."""
         return np.interp(f, self._f, self._h2)
 
     @property
     def nonzero(self) -> int:
+        """Number of non-zero taps (multiplies per output sample)."""
         return int(np.sum(np.abs(self.taps) > 1e-12))
 
     @property
     def delay_ms(self) -> float:
+        """Group delay of the linear-phase filter in milliseconds."""
         return (self.taps.size - 1) / 2 / self.rate * 1e3
 
 
@@ -376,7 +412,7 @@ def design_halfband(rate: float, f_pass: float, atten_db: float) -> HalfBand:
 
 def fold_into_bands(spec: CumSpectrum, lo: np.ndarray, hi: np.ndarray, fs_out: float,
                     stages: tuple[HalfBand, ...] = (), sub: int = 16):  # fmt: skip
-    """True and aliased power fractions that land in the output bands [lo, hi] (Hz).
+    """Return the true and aliased power fractions that land in the bands [lo, hi] (Hz).
 
     The trajectory is sampled at fs_out·2^len(stages), then decimated by the half-band
     ``stages``, listed from the output upwards (stages[0] runs at 2·fs_out). Each band is
@@ -407,10 +443,13 @@ def fold_into_bands(spec: CumSpectrum, lo: np.ndarray, hi: np.ndarray, fs_out: f
     return true, alias
 
 
-def band_measures(true: np.ndarray, alias: np.ndarray) -> dict:
-    """L_max (worst local alias/signal ratio) and M_max (screen excess), with their bands."""
-    a_dbfs = 10 * np.log10(np.maximum(alias * OUT_MS, 1e-300))
-    s_dbfs = 10 * np.log10(np.maximum(true * OUT_MS, 1e-300))
+def band_measures(true: np.ndarray, alias: np.ndarray, ms: float) -> dict:
+    """L_max (worst local alias/signal ratio) and M_max (screen excess), with their bands.
+
+    ``true`` and ``alias`` are fractions of the output power; ``ms`` is that power.
+    """
+    a_dbfs = 10 * np.log10(np.maximum(alias * ms, 1e-300))
+    s_dbfs = 10 * np.log10(np.maximum(true * ms, 1e-300))
     ratio = a_dbfs - s_dbfs
     valid = a_dbfs > ALIAS_FLOOR_DBFS
     if valid.any():
@@ -418,10 +457,17 @@ def band_measures(true: np.ndarray, alias: np.ndarray) -> dict:
         l_max, l_band, l_lev = float(ratio[i]), float(BANDS_FC[i]), float(a_dbfs[i])
     else:
         l_max, l_band, l_lev = -math.inf, math.nan, math.nan
+    valid10 = valid & (BANDS_FC <= L10_FC_MAX * 1.001)
+    if valid10.any():
+        k = int(np.argmax(np.where(valid10, ratio, -np.inf)))
+        l10, l10_band = float(ratio[k]), float(BANDS_FC[k])
+    else:
+        l10, l10_band = -math.inf, math.nan
     thr = np.maximum(s_dbfs + SPL_PER_DBFS - MASK_OFFSET_DB, ATH_DB_SPL)
     margin = a_dbfs + SPL_PER_DBFS - thr
     j = int(np.argmax(margin))
     return {"L_max": l_max, "L_band_hz": l_band, "L_alias_dbfs": l_lev,
+            "L10": l10, "L10_band_hz": l10_band,
             "M_max": float(margin[j]), "M_band_hz": float(BANDS_FC[j]),
             "M_alias_dbfs": float(a_dbfs[j])}  # fmt: skip
 
@@ -434,7 +480,7 @@ EVAL_HI = np.concatenate((BANDS_HI, [AUDIBLE[1]]))
 def evaluate(spec: CumSpectrum, fs_out: float, stages: tuple[HalfBand, ...] = ()) -> dict:
     """R_aud, L_max and M_max of one spectrum for one output rate and decimator chain."""
     true, alias = fold_into_bands(spec, EVAL_LO, EVAL_HI, fs_out, stages, sub=16 if stages else 1)
-    out = band_measures(true[:-1], alias[:-1])
+    out = band_measures(true[:-1], alias[:-1], spec.ms)
     out["R_aud"] = db(alias[-1])
     return out
 
@@ -460,7 +506,7 @@ def part_a() -> dict:
                 m = alias_metrics(f, s, total)
                 spec = CumSpectrum.from_psd(f, s, total, split=f0)
                 bands = evaluate(spec, FS)
-                m.update({key: bands[key] for key in ("L_max", "M_max")})
+                m.update({key: bands[key] for key in ("L_max", "L10", "M_max")})
                 m["var_over_target"] = total / OUT_MS
                 m["psd_closure"] = float(s.sum() * (f[1] - f[0]) / total)
                 _, s1 = psd(y, FS_HI, order=1)  # estimator check: first-difference prewhitening
@@ -468,7 +514,7 @@ def part_a() -> dict:
                 runs.append((m, bands))
                 if k == 0:
                     spectra[(system, note)] = (f, s, total, f0)
-            b48 = Dynamical("osc", catalog=CATALOG, system=system, note=note)
+            b48 = Dynamical("osc", context=CONTEXT, system=system, note=note)
             b48.reset(FS)
             keys = [key for key in runs[0][0] if key not in ("var_over_target", "psd_closure")]
             row = {"f0": note_to_hz(note), "substeps_48k": b48.substeps_per_sample()}
@@ -485,6 +531,7 @@ def part_a() -> dict:
             print(f"  {system:8s} {note:3s} R_nyq {r['R_nyq']['mean']:8.1f} "
                   f"[{r['R_nyq']['min']:.1f}, {r['R_nyq']['max']:.1f}]  R_aud "
                   f"{r['R_aud']['mean']:8.1f}  L_max {r['L_max']['max']:7.1f} "
+                  f"L10 {r['L10']['max']:7.1f} "
                   f"@{r['bands_seed0']['L_band_hz']:7.0f} Hz  M_max {r['M_max']['max']:7.1f}  "
                   f"(order-1 {r['R_nyq_order1']['mean']:8.1f}, closure {r['psd_closure']:.3f}, "
                   f"n_sub {r['substeps_48k']})")  # fmt: skip
@@ -577,7 +624,7 @@ def part_b(designs: dict) -> dict:
             row = {"R_nyq": db(spec.power(np.array([FS / 2]), np.array([spec.f_max]))[0])}
             for cname, (fs_out, stages) in configs.items():
                 ev = evaluate(spec, fs_out, stages)
-                row[cname] = {k: ev[k] for k in ("R_aud", "L_max", "M_max", "M_band_hz",
+                row[cname] = {k: ev[k] for k in ("R_aud", "L_max", "L10", "M_max", "M_band_hz",
                                                   "L_band_hz", "L_alias_dbfs")}  # fmt: skip
             scan[note] = row
         run["scan"] = scan
@@ -596,11 +643,13 @@ CRITERIA = {
     "R_nyq<=-80": (None, "R_nyq", CRIT_GLOBAL_DB),
     "R_aud<=-80": ("48k", "R_aud", CRIT_GLOBAL_DB),
     "L<=-40": ("48k", "L_max", L_CRIT_DB),
+    "L10<=-40": ("48k", "L10", L_CRIT_DB),
     "screen<=0": ("48k", "M_max", 0.0),
     "44.1k R_aud<=-80": ("44.1k", "R_aud", CRIT_GLOBAL_DB),
     "44.1k screen<=0": ("44.1k", "M_max", 0.0),
     "2x R_aud<=-80": ("48k_2x", "R_aud", CRIT_GLOBAL_DB),
     "2x L<=-40": ("48k_2x", "L_max", L_CRIT_DB),
+    "2x L10<=-40": ("48k_2x", "L10", L_CRIT_DB),
     "2x screen<=0": ("48k_2x", "M_max", 0.0),
     "4x R_aud<=-80": ("48k_4x", "R_aud", CRIT_GLOBAL_DB),
     "4x L<=-40": ("48k_4x", "L_max", L_CRIT_DB),
@@ -653,9 +702,7 @@ def part_c_designs() -> dict:
         "hb80": design_halfband(2 * FS, AUDIBLE[1], 80.0),
         "hb100": design_halfband(2 * FS, AUDIBLE[1], 100.0),
         # 4× first stage (192 → 96 kHz): keep 0–20 kHz, stop from 96 − 20 = 76 kHz
-        "hb80_stage1": design_halfband(
-            4 * FS, 2 * FS / 2 - AUDIBLE[1] - (FS - 2 * AUDIBLE[1]), 80.0
-        ),  # fmt: skip
+        "hb80_stage1": design_halfband(4 * FS, AUDIBLE[1], 80.0),
         "hb60_44k1": design_halfband(2 * FS_441, AUDIBLE[1], 60.0),
         "hb80_44k1": design_halfband(2 * FS_441, AUDIBLE[1], 80.0),
     }
@@ -690,37 +737,119 @@ def part_c(spectra: dict, designs: dict, univ_curves: dict) -> dict:
     return out
 
 
-def part_d(thr: dict) -> dict:
-    """Direct 8× renders of the scope-defining worst cases at and above their threshold."""
+def part_d(thr: dict, runs: list) -> dict:
+    """Direct 8× renders (3 seeds) of the scope-defining worst cases at and above threshold.
+
+    For each scope and criterion the two systems with the lowest threshold are checked; the
+    universal-spectrum prediction (seed 11 at A4) is stored next to the direct values.
+    """
     out: dict = {}
     seen = set()
     for scope in ("default_obs_all_u", "any_obs_all_u"):
         for cname in ("R_aud<=-80", "screen<=0"):
-            midi, system = min((thr[s][scope][cname]["midi"], s) for s in SYSTEMS)
-            case = thr[system][scope][cname]["case"]
-            obs = case.split(",")[0]
-            u = float(case.split("u=")[1].split(",")[0])
-            for m in (midi, midi + 1):
-                key = (system, obs, round(u, 3), m)
-                if key in seen or m > SCAN_MIDI[-1]:
-                    continue
-                seen.add(key)
-                note = midi_name(m)
-                y, block = render(system, note, FS_HI, T_RENDER, seed=SEEDS[0], param=u,
-                                  observable=obs)  # fmt: skip
+            for midi, system in sorted((thr[s][scope][cname]["midi"], s) for s in SYSTEMS)[:2]:
+                case = thr[system][scope][cname]["case"]
+                obs = case.split(",")[0]
+                u = float(case.split("u=")[1].split(",")[0])
+                pred_run = next(r for r in runs if r["system"] == system and not r["default"]
+                                and r["observable"] == obs and abs(r["u"] - u) < 1e-9)  # fmt: skip
+                for m in (midi, midi + 1):
+                    key = (system, obs, round(u, 3), m)
+                    if key in seen or m > SCAN_MIDI[-1]:
+                        continue
+                    seen.add(key)
+                    note = midi_name(m)
+                    evs = []
+                    for seed in SEEDS:
+                        y, block = render(system, note, FS_HI, T_RENDER, seed=seed, param=u,
+                                          observable=obs)  # fmt: skip
+                        f, s = combined_psd(y, FS_HI, block.frequency_hz)
+                        spec = CumSpectrum.from_psd(f, s, float(np.var(y)),
+                                                    split=block.frequency_hz)  # fmt: skip
+                        ev = evaluate(spec, FS)
+                        ev["R_nyq"] = db(spec.power(np.array([FS / 2]),
+                                                    np.array([spec.f_max]))[0])  # fmt: skip
+                        evs.append(ev)
+                    row = {k: {"mean": db(np.mean([10 ** (e[k] / 10) for e in evs])),
+                               "min": min(e[k] for e in evs), "max": max(e[k] for e in evs)}
+                           for k in ("R_nyq", "R_aud", "L_max", "L10", "M_max")}  # fmt: skip
+                    prow = pred_run["scan"][note]
+                    row["predicted"] = {"R_nyq": prow["R_nyq"], "R_aud": prow["48k"]["R_aud"],
+                                        "M_max": prow["48k"]["M_max"]}  # fmt: skip
+                    out[f"{system}/{obs}/u={u:g}/{note}"] = row
+                    print(
+                        f"  direct {system} {obs} u={u:g} {note}: R_aud "
+                        f"{row['R_aud']['mean']:.1f} [{row['R_aud']['min']:.1f}, "
+                        f"{row['R_aud']['max']:.1f}] (pred {row['predicted']['R_aud']:.1f})  "
+                        f"M_max {row['M_max']['mean']:.1f} [{row['M_max']['min']:.1f}, "
+                        f"{row['M_max']['max']:.1f}] (pred {row['predicted']['M_max']:.1f})"
+                    )
+    return out
+
+
+def part_e(runs: list) -> dict:
+    """Fast parameter modulation: square-wave u(t) ∈ {0, 1} versus the worst static u.
+
+    The v0.3 engine smooths u with a one-pole of time constant max(5 ms, 2/f0), so even a
+    square wave moves the parameter gradually. Static references come from the universal
+    scan (default observable, every u of the grid, seed 11) at the same note.
+    """
+    out: dict = {}
+    for system in SYSTEMS:
+        obs = CATALOG[system].default_observable
+        static = [r for r in runs if r["system"] == system and r["observable"] == obs
+                  and not r["default"]]  # fmt: skip
+        for note in MOD_NOTES:
+            ref = {k: max(r["scan"][note]["48k"][k] for r in static)
+                   for k in ("R_aud", "L_max", "M_max")}  # fmt: skip
+            ref["R_nyq"] = max(r["scan"][note]["R_nyq"] for r in static)
+            ref["R_nyq_at_u"] = {f"{r['u']:.3f}": r["scan"][note]["R_nyq"] for r in static}
+            row: dict = {"static_worst_u": ref}
+            for shape, rate in MOD_SIGNALS:
+                n = round(T_RENDER * FS_HI)
+                t = np.arange(n) / FS_HI
+                if shape == "square":
+                    u_sig = (np.mod(t * rate, 1.0) < 0.5).astype(np.float64)
+                else:
+                    u_sig = 0.5 - 0.5 * np.cos(2.0 * np.pi * rate * t)
+                y, block = render(system, note, FS_HI, T_RENDER, seed=SEEDS[0],
+                                  param_signal=u_sig)  # fmt: skip
                 f, s = combined_psd(y, FS_HI, block.frequency_hz)
                 spec = CumSpectrum.from_psd(f, s, float(np.var(y)), split=block.frequency_hz)
                 ev = evaluate(spec, FS)
                 ev["R_nyq"] = db(spec.power(np.array([FS / 2]), np.array([spec.f_max]))[0])
-                out[f"{system}/{obs}/u={u:g}/{note}"] = ev
-                print(f"  direct {system} {obs} u={u:g} {note}: R_nyq {ev['R_nyq']:.1f} R_aud "
-                      f"{ev['R_aud']:.1f}  L_max {ev['L_max']:.1f}  M_max {ev['M_max']:.1f} "
-                      f"@{ev['M_band_hz']:.0f} Hz")  # fmt: skip
+                ev["resets"] = int(block.resets)
+                m = (f > 30e3) & (f < 150e3) & (s > 0)
+                ev["slope_30_150k_db_per_oct"] = float(
+                    np.polyfit(np.log2(f[m]), 10 * np.log10(s[m]), 1)[0]
+                )
+                rate = f"{shape}_{rate:g}Hz"
+                row[rate] = ev
+                print(
+                    f"  mod {system:8s} {obs} {note} {rate}: R_nyq "
+                    f"{ev['R_nyq']:.1f} (static worst {ref['R_nyq']:.1f})  R_aud "
+                    f"{ev['R_aud']:.1f} ({ref['R_aud']:.1f})  L_max {ev['L_max']:.1f} "
+                    f"({ref['L_max']:.1f})  M_max {ev['M_max']:.1f} ({ref['M_max']:.1f})"
+                )
+            out[f"{system}/{note}"] = row
     return out
 
 
+def level_re_nominal_db(system: str, obs: str, u: float | None = None) -> float:
+    """Output power re the nominal 0.25 RMS: < 0 dB where the robust-peak limit applies."""
+    e = CATALOG[system]
+    u = e.u_default if u is None else u
+    rms_gain = 0.25 / float(e.std(obs, u))
+    peak_gain = 0.8 / float(e.peak(obs, u))
+    return db((min(rms_gain, peak_gain) / rms_gain) ** 2)
+
+
 def pitch_lock_reach() -> dict:
-    """With pitch lock off, the fundamental is f0·P(u_default)/P(u): its highest value."""
+    """With pitch lock off, the fundamental is f0·P(u_default)/P(u): its highest value.
+
+    The reach alone does not set a ceiling: the tail also depends on u, so a ceiling with
+    lock off must combine the ratio and the tail at the same u (report §7).
+    """
     out = {}
     us = np.linspace(0.0, 1.0, 401)
     for system in SYSTEMS:
@@ -761,6 +890,10 @@ def fig_vs_note(metrics: dict, curves: dict) -> None:
                 v = [scan[midi_name(m)]["48k"]["L_max"] for m in midis]
             v = np.clip(np.array(v, dtype=float), lim[0] - 10, None)
             ax.plot(midis, v, "-", color=COLORS[system], lw=2, label=LABELS[system])
+            if key == "L_max":
+                v10 = [scan[midi_name(m)]["48k"]["L10"] for m in midis]
+                v10 = np.clip(np.array(v10, dtype=float), lim[0] - 10, None)
+                ax.plot(midis, v10, "--", color=COLORS[system], lw=1.2)
             d = [metrics[system][n][key]["max" if key == "L_max" else "mean"] for n in NOTES]
             ax.plot(direct_m, np.clip(np.array(d, dtype=float), lim[0] - 10, None), "o",
                     color=COLORS[system], ms=6, mec="white", mew=1.0)  # fmt: skip
@@ -775,11 +908,13 @@ def fig_vs_note(metrics: dict, curves: dict) -> None:
         ax.set_xlabel("note (default parameter and observable)", fontsize=9)
         style(ax)
     axes[0].legend(frameon=False, fontsize=9, loc="upper left")
-    fig.text(0.01, 0.005, "Lines: every semitone, from the universal A4 spectrum. Dots: direct "
-             f"8× renders at the note (R_nyq mean, L_max worst of {len(SEEDS)} seeds). "
-             f"L_max ignores bands whose alias is below {ALIAS_FLOOR_DBFS:.0f} dBFS.",
+    fig.text(0.01, 0.035, "Lines: every semitone, from the universal A4 spectrum. Dots: direct "
+             f"8× renders at the note (R_nyq mean, L_max worst of {len(SEEDS)} seeds).",
              fontsize=8, color=INK2)  # fmt: skip
-    fig.tight_layout(rect=(0, 0.04, 1, 1))
+    fig.text(0.01, 0.005, "Right: solid = all bands up to 20 kHz, dashed = bands centred at or "
+             f"below 10 kHz. Bands whose alias is below {ALIAS_FLOOR_DBFS:.0f} dBFS are ignored.",
+             fontsize=8, color=INK2)  # fmt: skip
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
     fig.savefig(OUT_DIR / "aliasing_vs_note.png", dpi=150)
     plt.close(fig)
 
@@ -792,8 +927,8 @@ def fig_bands(spectra: dict) -> None:
         f, s, total, f0 = spectra[(system, note)]
         spec = CumSpectrum.from_psd(f, s, total, split=f0)
         true, alias = fold_into_bands(spec, BANDS_LO, BANDS_HI, FS, sub=1)
-        s_db = 10 * np.log10(np.maximum(true * OUT_MS, 1e-300))
-        a_db = 10 * np.log10(np.maximum(alias * OUT_MS, 1e-300))
+        s_db = 10 * np.log10(np.maximum(true * spec.ms, 1e-300))
+        a_db = 10 * np.log10(np.maximum(alias * spec.ms, 1e-300))
         thr = np.maximum(s_db - MASK_OFFSET_DB, ATH_DB_SPL - SPL_PER_DBFS)
         ax.step(BANDS_FC, s_db, where="mid", color="#8a8984", lw=2.2, label="signal in band")
         ax.step(BANDS_FC, a_db, where="mid", color=COLORS[system], lw=2.0,
@@ -816,12 +951,12 @@ def fig_bands(spectra: dict) -> None:
     plt.close(fig)
 
 
-def fig_screen(runs: list) -> None:
+def fig_screen(runs: list, hb_taps: int) -> None:
     """Screen excess M_max versus note: default vs worst over u and observables; 1× vs 2×."""
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True)
     midis = np.array(SCAN_MIDI)
     for ax, config, title in ((axes[0], "48k", "1× at 48 kHz"),
-                              (axes[1], "48k_2x", "2× + 63-tap half-band")):  # fmt: skip
+                              (axes[1], "48k_2x", f"2× + {hb_taps}-tap half-band")):  # fmt: skip
         for system in SYSTEMS:
             rs = [r for r in runs if r["system"] == system]
             dflt = [r for r in rs if r["default"]]
@@ -840,16 +975,12 @@ def fig_screen(runs: list) -> None:
         ax.set_xlabel("note", fontsize=9)
         style(ax)
     axes[0].legend(frameon=False, fontsize=9, loc="upper left")
-    fig.text(
-        0.01,
-        0.005,
-        "Solid: default parameter and observable. Dotted: worst over u grid "
-        "and all audible observables. Above 0 dB the alias exceeds in-band masking and the "
-        "threshold in quiet (96 dB SPL full-scale sine).",
-        fontsize=8,
-        color=INK2,
-    )
-    fig.tight_layout(rect=(0, 0.04, 1, 1))
+    fig.text(0.01, 0.035, "Solid: default parameter and observable. Dotted: worst over the u "
+             "grid and all audible observables.", fontsize=8, color=INK2)  # fmt: skip
+    fig.text(0.01, 0.005, "Above 0 dB the alias exceeds both the in-band masked threshold and "
+             "the threshold in quiet (full-scale sine = 96 dB SPL).", fontsize=8,
+             color=INK2)  # fmt: skip
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
     fig.savefig(OUT_DIR / "screen_vs_note.png", dpi=150)
     plt.close(fig)
 
@@ -949,7 +1080,7 @@ def dc_check() -> dict:
     original = dyn.DC_BLOCK_HZ
     out: dict = {}
     try:
-        for system in ("thomas", "duffing", "lorenz", "rossler", "chua"):
+        for system in SYSTEMS:
             for note in ("A1", "A2", "A4"):
                 res = {}
                 for label, cutoff in (("5Hz", original), ("0.01Hz", 0.01)):
@@ -984,6 +1115,58 @@ def dc_check() -> dict:
     return out
 
 
+def side_checks() -> dict:
+    """Two side checks behind statements in the report.
+
+    1. **Tail variability.** n80 of the A4 universal spectrum for the threshold-setting
+       u = 1 cases, three seeds, discarded starts of 0.5 s and 4 s, and each half of the
+       record separately (window-to-window scatter of slow, intermittent dynamics).
+    2. **Table nodes.** A tiny 20 Hz sine on u (±0.2 grid cells) either inside one cell of
+       the catalog's u grid or straddling a node, at A6: tests whether the power-law tail
+       under modulation comes from the piecewise-linear interpolation of the tables.
+    """
+    out: dict = {"variability": {}, "table_nodes": {}}
+    for system, obs in (("rikitake", "z"), ("rikitake", "y"), ("rossler", "z"), ("rossler", "x")):
+        rows = []
+        for seed in SEEDS:
+            for skip in (0.5, 4.0):
+                y, block = render(system, REF_NOTE, FS_HI, T_RENDER + skip, seed=seed, param=1.0,
+                                  observable=obs, skip=skip)  # fmt: skip
+                f0 = block.frequency_hz
+                vals = []
+                for part, nps in ((y, UNIV_NPERSEG), (y[: y.size // 2], UNIV_NPERSEG // 2),
+                                  (y[y.size // 2 :], UNIV_NPERSEG // 2)):  # fmt: skip
+                    f, s = combined_psd(part, FS_HI, f0, nperseg=nps)
+                    n, g = tail_curve(f, s, float(np.var(part)), f0)
+                    vals.append(crossing(n, g, -80.0))
+                rows.append({"seed": seed, "skip_s": skip, "n80": vals[0],
+                             "n80_first_half": vals[1], "n80_second_half": vals[2]})  # fmt: skip
+                print(f"  {system} {obs} u=1 seed {seed} skip {skip:g} s: n80 {vals[0]:.2f} "
+                      f"(halves {vals[1]:.2f} / {vals[2]:.2f})")  # fmt: skip
+        out["variability"][f"{system}/{obs}/u=1"] = rows
+    n = round(T_RENDER * FS_HI)
+    t = np.arange(n) / FS_HI
+    for system in ("duffing", "lorenz"):
+        grid = CATALOG[system].u_grid
+        k = int(np.argmin(np.abs(grid - CATALOG[system].u_default))) + 2
+        node, cell = float(grid[k]), float(grid[k + 1] - grid[k])
+        amp = 0.2 * cell
+        for label, centre in (("inside_cell", node + 0.5 * cell), ("across_node", node)):
+            u_sig = centre + amp * np.sin(2.0 * np.pi * 20.0 * t)
+            y, block = render(system, "A6", FS_HI, T_RENDER, seed=SEEDS[0], param_signal=u_sig)
+            f, s = combined_psd(y, FS_HI, block.frequency_hz)
+            spec = CumSpectrum.from_psd(f, s, float(np.var(y)), split=block.frequency_hz)
+            r_nyq = db(spec.power(np.array([FS / 2]), np.array([spec.f_max]))[0])
+            m = (f > 30e3) & (f < 150e3) & (s > 0)
+            slope = float(np.polyfit(np.log2(f[m]), 10 * np.log10(s[m]), 1)[0])
+            out["table_nodes"][f"{system}/A6/{label}"] = {
+                "u_centre": centre, "u_amplitude": amp, "R_nyq": r_nyq,
+                "slope_30_150k_db_per_oct": slope}  # fmt: skip
+            print(f"  {system} A6, 20 Hz sine ±{amp:.4f} {label}: R_nyq {r_nyq:.1f} dB, "
+                  f"slope {slope:.1f} dB/oct")  # fmt: skip
+    return out
+
+
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     import chaotic_sound.blocks.dynamical as dyn
@@ -992,6 +1175,10 @@ def main() -> None:
     if "--dc-check" in sys.argv:
         print("Side check: DC blocker and output power at low notes")
         (OUT_DIR / "dc_check.json").write_text(json.dumps(dc_check(), indent=1))
+        return
+    if "--side-checks" in sys.argv:
+        print("Side checks: tail variability (u = 1) and table-node kinks")
+        (OUT_DIR / "side_checks.json").write_text(json.dumps(side_checks(), indent=1))
         return
     t0 = time.time()
     print("Part C (designs first): half-band decimators")
@@ -1010,7 +1197,9 @@ def main() -> None:
     print(f"  ({time.time() - t0:.0f} s)\nPart C: residual alias with oversampling")
     c = part_c(a["spectra"], designs, b["curves"])
     print(f"  ({time.time() - t0:.0f} s)\nPart D: direct checks of the worst cases")
-    d = part_d(thr)
+    d = part_d(thr, b["runs"])
+    print(f"  ({time.time() - t0:.0f} s)\nPart E: fast parameter modulation")
+    e = part_e(b["runs"])
     # Universal-vs-direct agreement at the part-A notes (default case, seed 11).
     agree = {}
     for system in SYSTEMS:
@@ -1028,10 +1217,29 @@ def main() -> None:
     runs_out = []
     for r in b["runs"]:
         rr = {k: v for k, v in r.items() if k != "scan"}
-        rr["scan"] = {note: row for note, row in r["scan"].items()
-                      if note in ("A4", "A5", "A6", "A7", "C8") or r["default"]}  # fmt: skip
+        if r["default"]:
+            rr["scan"] = r["scan"]
+        else:  # compact: the measures the thresholds use, every semitone
+            rr["scan"] = {note: {"R_nyq": row["R_nyq"],
+                                 **{c: {k: row[c][k] for k in ("R_aud", "L_max", "L10", "M_max")}
+                                    for c in b["configs"]}}
+                          for note, row in r["scan"].items()}  # fmt: skip
         runs_out.append(rr)
     results = {
+        "provenance": {
+            "engine": ENGINE,
+            "package_version": chaotic_sound.__version__,
+            "catalog_path": str(default_catalog_path()),
+            "catalog_generated": CATALOG.metadata.get("generated"),
+            "systems": {s: {"param": CATALOG[s].param, "p_min": CATALOG[s].p_min,
+                            "p_max": CATALOG[s].p_max, "p_default": CATALOG[s].p_default,
+                            "p_reference": CATALOG[s].p_reference,
+                            "u_default": CATALOG[s].u_default,
+                            "default_observable": CATALOG[s].default_observable,
+                            "level_re_nominal_db": {o: level_re_nominal_db(s, o)
+                                                    for o in get_system(s).audio_variables}}
+                        for s in SYSTEMS},
+        },
         "settings": {"fs": FS, "fs_hi": FS_HI, "fs_check": FS_CHECK, "seeds": SEEDS,
                      "t_render_s": T_RENDER, "t_skip_s": T_SKIP, "bin_hz": BIN_HZ,
                      "ref_note": REF_NOTE, "univ_bin_hz": FS_HI / UNIV_NPERSEG,
@@ -1044,19 +1252,21 @@ def main() -> None:
         "criteria": {k: list(v) for k, v in CRITERIA.items()},
         "oversampling": c,
         "direct_worst_cases": d,
+        "modulation": e,
         "universal_vs_direct": agree,
         "pitch_lock_off_reach": pitch_lock_reach(),
     }  # fmt: skip
     (OUT_DIR / "results.json").write_text(json.dumps(results, indent=1))
     fig_vs_note(a["metrics"], b["curves"])
     fig_bands(a["spectra"])
-    fig_screen(b["runs"])
+    fig_screen(b["runs"], int(designs["hb80"].taps.size))
     fig_tail(b["curves"])
     fig_native(checks["curves"])
     print(f"Done in {time.time() - t0:.0f} s; wrote {OUT_DIR}")
 
 
 CATALOG = load_default_catalog()
+CONTEXT = BlockContext(catalog=CATALOG)
 
 if __name__ == "__main__":
     main()
