@@ -6,8 +6,11 @@ This package implements `docs/spec-v1.md` identically to the Python reference in
 ## Layout
 
 - `src/core/`: the pure core. No DOM, Web Audio, Node, `fetch`, timers or `async`.
-  - `dsp/`: C-style kernels: `systems.ts`, `rk4.ts`, `filters.ts` (smoothers, DC blocker,
-    soft clip, `Glide` for live knobs), `pitch.ts`, `rng.ts`.
+  - `dsp/`: C-style kernels: `systems.ts`, `rk4.ts` (the generic RK4 renderer, the
+    reference), `kernels.ts` (one hand-written, bit-identical kernel per system: a new
+    system needs one, and `test/kernels.test.ts` checks them bitwise against `rk4.ts`),
+    `filters.ts` (smoothers, DC blocker, soft clip, `Glide` for live knobs), `tonal.ts`
+    (the tonality resynthesis), `pitch.ts`, `rng.ts`.
   - `catalog.ts` (catalog model, numpy-compatible `interp`), `patch.ts` (document rules,
     defaults, edits), `graph.ts` (cable rules, ordering, input preparation), `blocks/`,
     `engine.ts` (`Engine` implements `EnginePort`; atomic loads and edits, one live-edit
@@ -16,8 +19,16 @@ This package implements `docs/spec-v1.md` identically to the Python reference in
   arrives as data in `load()`).
 - `src/adapters/`: `offline.ts`, `wav.ts`, `node/` (CLI, file loading), `worklet/` (the
   AudioWorklet processor and its message protocol).
-- `test/`: Vitest. `golden.test.ts` holds the cross-engine tests;
-  `architecture.test.ts` enforces the purity of the core.
+- `test/`: Vitest.
+  - `golden.test.ts`: the cross-engine contract (ADR 0016).
+  - `architecture.test.ts`: the purity of the core.
+  - `live.test.ts`: live edits, atomicity, glides, engine state, and the allocation probe
+    (V8's sampling heap profiler; budget 32 bytes per quantum).
+  - `rules-*.test.ts`: one spec rule each.
+  - `documents.test.ts`: the shared document rules.
+  - `kernels.test.ts`, `tonality.test.ts`, `diff.test.ts`, `engine.test.ts`, `dsp.test.ts`,
+    `patch.test.ts`.
+- `bench/kernels.ts`: integrator and box timings (`node packages/engine/bench/kernels.ts`).
 
 ## Commands (from the repository root)
 
@@ -44,7 +55,10 @@ parameter properties.
   imports.
 - **Real-time safety.** No allocation in `process()` paths: preallocate in constructors or
   `reset()` and reuse typed arrays. Hot loops use typed arrays and scalar locals, no closures.
-  That is also what keeps a C++ port mechanical.
+  In V8 also avoid, inside sample loops, calling a function that returns a number, writing
+  a number into an object field, and `fill(v)`: each can box the number. Batch per chunk
+  (`interpInto`, `Glide.fill`) instead. `live.test.ts` measures this. That is also what keeps
+  a C++ port mechanical.
 - **Readable for a Python programmer.** Comment TypeScript idioms when they first appear:
   `x!` means "this is not undefined" (needed with `noUncheckedIndexedAccess`); `import type`
   imports only types; `readonly` makes a field immutable. The owner's primer is

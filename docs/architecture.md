@@ -60,10 +60,16 @@ function by function.
 1. `docs/spec-v1.md`: behavior, with exact formulas.
 2. Patch JSON (spec §5): `examples/patches/` are the canonical fixtures.
 3. Catalog JSON (`catalog/systems.json`, format version 2).
-4. Golden vectors (`examples/golden/`), exported by the Python reference:
-   - each fixture's first samples;
-   - statistics (RMS, pitch, octave-band spectrum);
-   - each dynamical block's exact initial state.
+4. Golden vectors (`examples/golden/`), exported by the Python reference (ADR 0016):
+   - the demo patches plus eight golden-only fixtures (`examples/golden/patches/`);
+   - each one's first 2048 samples (1e-9 for any engine, ≤ 1e-12 and a recorded ratchet for
+     TypeScript);
+   - 8 s statistics (level, level per segment, octave bands, per voice) with the spread of a
+     13-seed ensemble (an engine must be within 10 spreads);
+   - modulator windows around cycle edges and once ends, and each dynamical block's exact
+     initial state.
+5. Document rules (`examples/documents.json`): 146 edge-case patch documents with the
+   expected outcome.
 
 ## Processing in the AudioWorklet
 
@@ -71,13 +77,15 @@ function by function.
   `EnginePort.process(128, left, right)`.
 - Patch edits arrive as messages and are applied between quanta.
 - All buffers, per-block input arrays and kernel arguments are preallocated when a patch is
-  loaded or edited, so `process()` allocates nothing. Loading a patch (parsing the catalog,
+  loaded or edited, so `process()` allocates (almost) nothing: the allocation probe in
+  `live.test.ts` allows 32 bytes per quantum, and measures a few. Loading a patch (parsing the catalog,
   building blocks) runs between quanta on the audio thread; it takes about 2 ms.
 - Knob changes arrive as `setParams` edits and update the running block (ADR 0014).
-- Cost (`docs/studies/cost.md`, engine v0.3, M1): with per-system kernels one box is about
-  0.3–0.6% of a core at A3 and 2–5% at A7 (worst knob). The engine's generic RK4 kernel costs
-  about 1.5–2.7× more; per-system kernels are being added. The tonality step (ADR 0015) adds
-  about 0.9% of a core per voice at any note.
+- Cost (M1, Node 24): the engine uses one hand-written RK4 kernel per system
+  (`dsp/kernels.ts`). A whole voice is 1.4–2.8× faster than with the generic kernel, so at
+  A7 and the worst knob one core runs about 22–46 voices in real time (about 10 before). The
+  tonality step (ADR 0015) adds about 0.9% of a core per voice at any note. Details:
+  `docs/studies/cost.md` and `packages/engine/bench/kernels.ts`.
 
 ## Python lab package map
 

@@ -146,6 +146,8 @@ class Patch:
         self.blocks: dict[str, Block] = {}
         self.cables: list[Cable] = []
         self.ui: dict[str, Any] = {}
+        self.top_ui: Any = None
+        """The patch's own optional ``ui`` object (editor state), preserved as is (spec §5)."""
         self.last_render: RenderStats | None = None
 
     @property
@@ -334,19 +336,22 @@ class Patch:
     # -- serialization -----------------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
-        """Patch JSON (spec §5); each block's optional ``ui`` object is preserved."""
+        """Patch JSON (spec §5); the optional ``ui`` objects (top level, blocks) are preserved."""
         blocks = []
         for b in self.blocks.values():
             d = b.to_dict()
             if b.id in self.ui:
                 d["ui"] = self.ui[b.id]
             blocks.append(d)
-        return {
+        out: dict[str, Any] = {
             "format": PATCH_FORMAT,
             "version": PATCH_VERSION,
             "blocks": blocks,
             "cables": [c.to_dict() for c in self.cables],
         }
+        if self.top_ui is not None:
+            out["ui"] = self.top_ui
+        return out
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], catalog: Catalog | None = None) -> Patch:
@@ -399,6 +404,8 @@ class Patch:
             if not isinstance(cable, dict) or set(cable) != _CABLE_KEYS:
                 raise PatchError(f"bad cable entry {cable!r} (it needs exactly 'from' and 'to')")
             patch.connect(cable["from"], cable["to"])
+        if "ui" in data:
+            patch.top_ui = data["ui"]
         return patch
 
     def to_json(self, indent: int = 2) -> str:
@@ -419,7 +426,11 @@ class Patch:
         ``Infinity``, which JSON (and JavaScript's ``JSON.parse``) does not, so they raise
         :class:`PatchError`.
         """
-        return cls.from_dict(json.loads(text, parse_constant=_reject_constant), catalog=catalog)
+        try:
+            data = json.loads(text, parse_constant=_reject_constant)
+        except ValueError as exc:  # also Python's limit on integers of more than 4300 digits
+            raise PatchError(f"not valid JSON: {exc}") from None
+        return cls.from_dict(data, catalog=catalog)
 
     def save(self, path: str | Path) -> None:
         """Write the patch JSON to ``path`` (UTF-8)."""

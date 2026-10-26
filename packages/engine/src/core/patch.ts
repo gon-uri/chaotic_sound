@@ -154,6 +154,21 @@ export function withDefaults(
   return out;
 }
 
+/**
+ * A copy of `doc` without params equal to their documented default, as writers produce it
+ * (spec §5: "Writers omit defaulted values"). The sound is unchanged.
+ */
+export function withoutDefaults(doc: PatchDocument): PatchDocument {
+  const blocks = doc.blocks.map((b) => {
+    const params: Record<string, ParamValue | null> = {};
+    for (const [name, value] of Object.entries(b.params ?? {})) {
+      if (value !== null && value !== defaultParam(b.type, name)) params[name] = value;
+    }
+    return { ...b, params };
+  });
+  return { ...doc, blocks };
+}
+
 export function isBlockType(t: unknown): t is BlockType {
   return typeof t === "string" && Object.hasOwn(BLOCK_SPECS, t);
 }
@@ -208,7 +223,8 @@ export function validateParams(
   const specs = BLOCK_SPECS[type].params;
   const clean: Record<string, ParamValue> = {};
   for (const [name, value] of Object.entries(params)) {
-    const spec = specs[name];
+    // Own properties only: `toString`, `__proto__` and friends are unknown params too.
+    const spec = Object.hasOwn(specs, name) ? specs[name] : undefined;
     if (spec === undefined) {
       throw new PatchError(
         `${where}: unknown parameter ${JSON.stringify(name)}; allowed: ${Object.keys(specs).sort().join(", ")}`,
@@ -267,7 +283,9 @@ export function normalizePatch(doc: unknown): PatchDocument {
       );
     }
     const id = bj.id;
-    if (typeof id !== "string" || id === "" || id.includes(".")) {
+    // The id is hashed as UTF-8 (spec §4.2 step 9), so it must have a UTF-8 encoding: no
+    // unpaired surrogate halves (\p{Cs} with the u flag matches only unpaired ones).
+    if (typeof id !== "string" || id === "" || id.includes(".") || /\p{Cs}/u.test(id)) {
       throw new PatchError(
         `invalid block id ${JSON.stringify(id)} (a non-empty string without '.')`,
       );
@@ -346,8 +364,19 @@ export function applyEdit(doc: PatchDocument, edit: PatchEdit): PatchDocument {
   return normalizePatch(next);
 }
 
+/**
+ * Deep copy of a JSON-like value. Unlike a JSON round trip it keeps NaN and ±Infinity, so
+ * invalid numbers are still rejected by the validation that follows (spec §6: invalid edits
+ * change nothing).
+ */
 function structuredCloneJson<T>(x: T): T {
-  return JSON.parse(JSON.stringify(x)) as T;
+  if (Array.isArray(x)) return x.map((v) => structuredCloneJson(v)) as T;
+  if (x !== null && typeof x === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(x)) out[k] = structuredCloneJson(v);
+    return out as T;
+  }
+  return x;
 }
 
 /**

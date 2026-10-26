@@ -72,6 +72,45 @@ export function interp(x: number, xp: Float64Array, fp: Float64Array): number {
   return slope * (x - xp[lo]!) + fp[lo]!;
 }
 
+/**
+ * `out[i] = interp(clip(u[i], 0, 1), xp, fp)` for i < n, with exactly interp's arithmetic.
+ * One call per chunk instead of one per sample keeps the audio loop free of boxed numbers.
+ */
+export function interpInto(
+  u: Float64Array,
+  xp: Float64Array,
+  fp: Float64Array,
+  out: Float64Array,
+  n: number,
+): void {
+  const last = xp.length - 1;
+  for (let i = 0; i < n; i++) {
+    const v = u[i]!;
+    const x = v < 0 ? 0 : v > 1 ? 1 : v;
+    if (!(x > xp[0]!)) {
+      out[i] = fp[0]!;
+      continue;
+    }
+    if (x >= xp[last]!) {
+      out[i] = fp[last]!;
+      continue;
+    }
+    let lo = 0;
+    let hi = last;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (xp[mid]! <= x) lo = mid;
+      else hi = mid;
+    }
+    if (xp[lo] === x) {
+      out[i] = fp[lo]!;
+      continue;
+    }
+    const slope = (fp[lo + 1]! - fp[lo]!) / (xp[lo + 1]! - xp[lo]!);
+    out[i] = slope * (x - xp[lo]!) + fp[lo]!;
+  }
+}
+
 function clip01(u: number): number {
   return u < 0 ? 0 : u > 1 ? 1 : u;
 }

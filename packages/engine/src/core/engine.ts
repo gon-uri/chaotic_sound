@@ -96,9 +96,13 @@ export class Engine implements EnginePort {
         }
         applied.push(name);
       }
-    } catch (error) {
-      rollback(block, applied, old); // e.g. a note above Nyquist: keep the old settings
-      throw error;
+    } catch {
+      // A value was rejected against the block's partly updated settings (e.g. pitch_min
+      // above the old pitch_max, or a note above Nyquist). Undo, then let the caller rebuild
+      // the block from the final settings: that accepts a valid final document whatever the
+      // key order, and rejects an invalid one with the block's own error, changing nothing.
+      rollback(block, applied, old);
+      return false;
     }
     const updated: BlockJson = { ...entry, params: clean };
     const blocks = doc.blocks.slice();
@@ -192,9 +196,12 @@ export class Engine implements EnginePort {
   }
 }
 
-/** Undo live changes already applied to `block` (their old values were valid). */
+/**
+ * Undo live changes already applied to `block`, newest first, so every intermediate state
+ * is one the block has already been in (each was valid).
+ */
 function rollback(block: BlockRuntime, names: readonly string[], old: Record<string, ParamValue>) {
-  for (const name of names) block.setParam?.(name, old[name]);
+  for (let i = names.length - 1; i >= 0; i--) block.setParam?.(names[i]!, old[names[i]!]);
 }
 
 /** Identity of a block's settings: a block is reused only while this stays the same. */

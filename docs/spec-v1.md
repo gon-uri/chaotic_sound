@@ -69,7 +69,8 @@ English.
   - It must be acyclic (no feedback in v1).
   - It has exactly one Output block, which may have no cable, in which case it renders
     silence.
-  - Block ids are non-empty strings without `.`.
+  - Block ids are non-empty strings without `.` that have a UTF-8 encoding (no unpaired
+    surrogate halves), because step 9 of §4.2 hashes their UTF-8 bytes.
   - A port reference `"block.port"` splits at the first `.`.
 
 ## 4. Boxes
@@ -129,8 +130,10 @@ Per chunk and per sample i:
      way, not as a product of two powers, because that is the exact float64 expression both
      engines evaluate.)
    - With a cable: q is smoothed by the control smoother of step 2, with
-     y[−1] = the first q value of the cable. If the cable is removed during playback, a
-     cable connected later starts again from its own first value. Then
+     y[−1] = the first q value of the cable. If the cable is removed during playback and a
+     chunk is processed without it (the box plays its note again), a cable connected later
+     starts again from its own first value. A cable swapped for another between two chunks
+     is a change of the pitch control: q glides from the old value like any jump. Then
      m(t) = m_min + q_s·(m_max − m_min), with m_min, m_max the MIDI numbers of `pitch_min`,
      `pitch_max` (cents ignored), and f = 440·2^((m(t) − 69)/12).
    - Engines reject f ≥ fs/2 at reset.
@@ -157,7 +160,7 @@ Per chunk and per sample i:
 6. **Integration.**
    - Δτ = k/fs, and n_sub = clamp(⌈Δτ/h_max⌉, 1, 4096).
    - Take n_sub classical RK4 steps of h = Δτ/n_sub, with p held constant within the sample.
-   - Wrap phase variables (Duffing's z) to [0, 2π) with the floating-point remainder: r = fmod(x, 2π), plus 2π if r < 0 (Python's `%`).
+   - Wrap phase variables (Duffing's z) to [0, 2π) with the floating-point remainder: r = fmod(x, 2π), plus 2π if r < 0, and −0 becomes +0 (Python's `%`).
    - h_max comes from the catalog.
    - **Sample timing**: the sample's output is the state *after* this advance.
 7. **Audio.**
@@ -261,8 +264,8 @@ out = gain · Σ inputs (0 with nothing connected).
 
 - y = softclip(v · in), with the perceptual curve of §4.2 step 3: v = volume^(1/(2·log₁₀2))
   (halving the knob is −10 dB; the default 0.8 is a gain of 0.69). softclip(x) = x for
-  |x| ≤ 0.9, and
-  sign(x)·(0.9 + 0.1·tanh((|x| − 0.9)/0.1)) otherwise. A NaN sample becomes 0, so a broken
+  |x| ≤ 0.9, and sign(x)·(0.9 + w·tanh((|x| − 0.9)/w)) otherwise, with w = 1 − 0.9 computed in
+  float64 (0.09999999999999998, not the literal 0.1). A NaN sample becomes 0, so a broken
   box never reaches the speakers.
 - **WAV export**: an offline render of a chosen length (default 10 s) at 48 kHz, stereo.
   The length is round(seconds·fs) frames and the header rate round(fs), rounding half to
@@ -290,7 +293,7 @@ connected, out = 0. gain = 0.5 averages two inputs.
     {"id": "lfo", "type": "modulator", "params": {"shape": "sine", "period_s": 8.0}},
     {"id": "ross", "type": "dynamical", "params": {"system": "rossler", "note": "A3"},
      "ui": {"x": 120, "y": 40}},
-    {"id": "out", "type": "output", "params": {"volume": 0.8}}
+    {"id": "out", "type": "output", "params": {"volume": 0.9}}
   ],
   "cables": [
     {"from": "lfo.out", "to": "ross.param"},
@@ -299,6 +302,11 @@ connected, out = 0. gain = 0.5 averages two inputs.
 }
 ```
 
+- **Standard JSON** (RFC 8259): no `NaN` or `Infinity`. A number that is not a finite float64
+  (such as `1e400`, or an integer of hundreds of digits) is invalid everywhere.
+- **`version`** is the number 0 (`0.0` is the same number; `false` and `"0"` are not).
+- **`blocks` and `cables`** may be omitted or `null`, meaning `[]`; any other non-array is an
+  error.
 - **Defaults.** An omitted param takes its default, and `null` means the same as omission.
   Writers omit defaulted values and never write `null`.
 - **Types are checked.** Numbers may be integers or decimals (not booleans), settings are
@@ -308,8 +316,11 @@ connected, out = 0. gain = 0.5 averages two inputs.
   - at the top level (allowed: `format`, `version`, `blocks`, `cables`, `ui`);
   - in blocks (`id`, `type`, `params`, `ui`);
   - in cables (`from`, `to`);
-  - and unknown params, even when their value is `null`.
-- **The optional `ui` object** of a block is preserved by every engine and otherwise ignored.
+  - and unknown params, even when their value is `null`, whatever the name (`toString` and
+    `__proto__` are unknown params too).
+- **The optional `ui` objects**, of the patch and of each block (editor state such as positions),
+  are preserved by every engine and otherwise ignored.
+- The edge cases are collected in `examples/documents.json`, which both engines' tests read.
 - **Block order** in the file does not matter: engines process in topological order.
 
 ## 6. Processing model
@@ -340,13 +351,18 @@ connected, out = 0. gain = 0.5 averages two inputs.
     recreate the block from t = 0. An edit that mixes both kinds recreates the block.
   - Blocks that are not edited are never reset.
   - Loads and edits are atomic: an invalid patch, edit or value raises an error and leaves
-    the running patch exactly as it was.
+    the running patch exactly as it was. A `setParams` edit whose final settings are valid is
+    accepted whatever the order of its keys; if its values depend on each other (for example
+    `pitch_min` and `pitch_max` moved past each other), the block is rebuilt from the final
+    settings instead of being changed live.
 - **Across engines:**
   - the first samples agree to about 1e-9. In the golden configurations (48 kHz, the
     fixture notes) that holds for about 2000 samples; the window shrinks roughly with f/fs,
     because chaos amplifies last-bit differences of libm functions;
   - over longer times engines must agree statistically: level, pitch, spectral envelope
-    and diagnostics;
+    and diagnostics. The golden tests make this exact: over 8 s, the level, the level per 2 s
+    segment and the octave-band spectrum (of the patch, and of each voice alone) must lie
+    within 10 standard deviations of a 13-seed ensemble of the reference (ADR 0016);
   - modulator outputs agree exactly, except the sine shape, which may differ in the last
     bit of cos.
 

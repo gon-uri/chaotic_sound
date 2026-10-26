@@ -117,10 +117,8 @@ changes the sound of a patch played without live changes (the golden vectors are
 8. **Still open:** two golden checks (initial states, modulator outputs) read TypeScript
    internals. A C++ core would need a small data-only probe on `EnginePort` for them. I would
    add it when the C++ work starts.
-9. **In progress** (background, each verified independently): tests that catch the review's
-   surviving mutations, more golden fixtures (stereo, 44.1 kHz, defaults, envelopes),
-   Python edge cases of the patch format, and per-system integration kernels (about 1.5–2.7×
-   faster at high notes, bit-identical).
+9. **Done**, see **B7**: tests that catch the review's surviving mutations, more golden
+   fixtures, the Python edge cases of the patch format, and per-system integration kernels.
 
 New for you: `docs/dev/typescript-for-python.md`, a short guide to the TypeScript idioms used
 in the code, written for a Python programmer.
@@ -146,6 +144,52 @@ demos. All demos now play at the default 0.3.
    ticks at the default setting (a coherence floor), and stale state when switching it on
    again. Details: ADR 0015, "Fixes after the independent verification".
 7. **Open:** a second "brightness" knob (idea note, question 2).
+
+## B7. Engine hardening (ADR 0016: Proposed)
+
+Five pieces of work, each checked by an independent mutation-testing agent, then merged on
+top of the tonality work.
+
+1. **Tests.** The TypeScript engine has 610 tests (161 before) and the Python lab 450 (259).
+   Almost all the plausible bugs the verifiers injected are now caught.
+2. **Golden contract** (how the two engines must agree; spec §6). Choices to check:
+   - The first 2048 samples within 1e-12 for TypeScript (17 of 23 goldens are bit-exact).
+   - Long-run statistics within 10 standard deviations of a 13-seed ensemble.
+   - Eight new golden-only fixtures.
+   *Recommendation: keep.*
+3. **Per-system kernels.** One hand-written integration kernel per system, bit-identical to
+   the generic one. A voice is 1.4–2.8× faster, so at A7 one core runs 22–46 voices (about 10
+   before). Adding a system now also needs a kernel; the add-system skill says so.
+4. **Patch-file rules shared by both engines** (`examples/documents.json`, 146 cases):
+   - standard JSON;
+   - `version` 0 (`0.0` accepted);
+   - `blocks`/`cables` may be null;
+   - ids need a UTF-8 encoding;
+   - names such as `toString` are unknown params;
+   - writers (the editor's Save too) leave out default values;
+   - the patch's own `ui` object is kept.
+   *Recommendation: keep.*
+5. **Real-time budget.** The audio loop now allocates almost nothing. The test allows 32 bytes
+   per audio block, because exactly zero depends on V8's JIT and would make the test flaky.
+6. **Two live-edit details:**
+   - A pitch cable swapped for another between two audio blocks glides from the old pitch
+     (5 ms) instead of jumping.
+   - An edit whose values depend on each other (`pitch_min` and `pitch_max` moved past each
+     other) rebuilds the box.
+   *Recommendation: keep both.*
+7. **Other fixes found by the review:**
+   - rollback order;
+   - glides on boxes with nothing connected;
+   - Play after the audio engine crashed now restarts it;
+   - an added box with a NaN param is rejected;
+   - the purity test's tokenizer handles a regex after `=>` and `return`;
+   - phase wrapping gives +0 like Python.
+8. **Still open:**
+   - a data-only probe on `EnginePort` for the two golden checks that read TypeScript
+     internals (needed for a C++ core);
+   - `test_golden.py` does not yet detect stale golden metadata or re-check the statistics on
+     the Python side;
+   - on Linux CI the TypeScript prefix check uses the 1e-12 bound instead of the exact records.
 
 ## C. What to listen to (`lab/outputs/demos/`)
 

@@ -81,3 +81,15 @@ describe("diffPatch", () => {
     ]);
   });
 });
+
+describe("withoutDefaults (spec §5: writers omit defaulted values)", () => {
+  test("drops params equal to their default and keeps the rest", async () => {
+    const { withoutDefaults } = await import("../src/core/patch.ts");
+    const doc = structuredClone(base);
+    doc.blocks[1]!.params = { system: "lorenz", note: "A3", amp: 1, tonality: 0.3, param: 0.7 };
+    doc.blocks[2]!.params = { volume: 0.8 };
+    const out = withoutDefaults(doc);
+    expect(out.blocks[1]!.params).toEqual({ system: "lorenz", param: 0.7 });
+    expect(out.blocks[2]!.params).toEqual({});
+  });
+});

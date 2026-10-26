@@ -13,8 +13,12 @@ This package (`chaotic_sound`, `src/` layout) is the reference implementation of
   `../docs/figures/` when they change the conclusions.
 - `uv run python scripts/render_demos.py`: writes WAVs, spectrograms and `report.md` to
   `outputs/demos/`, and the demo patches to `../examples/patches/` (committed).
-- `uv run python scripts/export_golden.py`: writes the cross-engine vectors to
-  `../examples/golden/`. `tests/test_golden.py` fails when they are stale.
+- `uv run python scripts/export_golden.py`: writes the cross-engine vectors and the
+  golden-only fixtures to `../examples/golden/` (about 100 s). `tests/test_golden.py` fails
+  when they are stale. When a prefix changed, re-record the TypeScript errors from the repo
+  root: `GOLDEN_RECORD=1 npx vitest run packages/engine/test/golden.test.ts`.
+- `tests/test_documents.py` and the TS `documents.test.ts` read `../examples/documents.json`
+  (hand-written edge-case patch documents): add a case there for every new document rule.
 - After any change to tuning, catalog or blocks: rebuild the catalog, re-render the demos,
   re-export the golden vectors, then run the full test suite (`uv run pytest -q`; the slow
   tests check tuning accuracy per note) and the TypeScript tests (`npm test` at the repo root).

@@ -8,7 +8,7 @@
  * by the tonality amount (harmonic resynthesis, ADR 0015), and apply the amp curve.
  */
 
-import type { CatalogEntry, ObservableTable } from "../catalog.ts";
+import { type CatalogEntry, interpInto, type ObservableTable } from "../catalog.ts";
 import {
   dcBlock,
   dcBlockCoefficient,
@@ -37,6 +37,12 @@ export const DC_BLOCK_HZ = 5;
 export const IC_PERTURBATION = 1e-6;
 /** Perceptual amp curve: g = a^(1/(2·log10 2)), so each halving of a is −10 dB. */
 export const AMP_EXPONENT = 1 / (2 * Math.log10(2));
+
+/** Set the first `n` values of `a` to `v` and return `a` (a plain loop: `fill` boxes `v`). */
+function setAll(a: Float64Array, v: number, n: number): Float64Array {
+  for (let i = 0; i < n; i++) a[i] = v;
+  return a;
+}
 
 /** True if every value is finite (their sum is finite; cheap enough once per chunk). */
 function finiteSum(a: Float64Array): boolean {
@@ -126,8 +132,14 @@ export class Dynamical implements BlockRuntime {
   private readonly alphaU: Float64Array;
   private readonly aRaw: Float64Array;
   private readonly a: Float64Array;
-  /** Per-sample gain g(a) from the amp curve. */
+  /** Per-sample gain g(a) from the amp curve, and the curve's blend m (1 = perceptual). */
   private readonly g: Float64Array;
+  private readonly curveMix: Float64Array;
+  /** Table values per sample: P(u), σ(u), π(u), μ(u) (filled once per chunk). */
+  private readonly periodU: Float64Array;
+  private readonly sigma: Float64Array;
+  private readonly peak: Float64Array;
+  private readonly mu: Float64Array;
   private readonly tRaw: Float64Array;
   /** Smoothed tonality τ_s and the fundamental actually heard f_a, per sample. */
   private readonly tau: Float64Array;
@@ -219,6 +231,11 @@ export class Dynamical implements BlockRuntime {
     this.aRaw = new Float64Array(m);
     this.a = new Float64Array(m);
     this.g = new Float64Array(m);
+    this.curveMix = new Float64Array(m);
+    this.periodU = new Float64Array(m);
+    this.sigma = new Float64Array(m);
+    this.peak = new Float64Array(m);
+    this.mu = new Float64Array(m);
     this.tRaw = new Float64Array(m);
     this.tau = new Float64Array(m);
     this.fA = new Float64Array(m);
@@ -267,7 +284,7 @@ export class Dynamical implements BlockRuntime {
     const highest = Math.max(this.frequencyHz, midiToHz(this.midiMax));
     if (!(highest < sampleRate / 2)) {
       throw new PatchError(
-        `dynamical '${this.id}': ${highest.toFixed(1)} Hz is not below ${sampleRate / 2} Hz`,
+        `dynamical '${this.id}': ${highest.toFixed(1)} Hz is not below Nyquist (${sampleRate / 2} Hz)`,
       );
     }
     this.sampleRate = sampleRate;
@@ -301,7 +318,7 @@ export class Dynamical implements BlockRuntime {
 
     // 1. Frequency: the note, or the smoothed pitch input mapped A1..A5 (spec §4.2 step 1).
     if (qIn === null) {
-      this.freq.fill(this.frequencyHz, 0, n);
+      setAll(this.freq, this.frequencyHz, n);
       this.qInit = false; // a pitch cable connected later starts from its own first value
     } else {
       if (!this.qInit) {
@@ -316,8 +333,8 @@ export class Dynamical implements BlockRuntime {
     }
 
     // 2. Controls: the parameter slew is at least 5 ms and 2 periods (ADR 0013).
-    const uRaw = uIn ?? this.uRaw.fill(this.knobParam, 0, n);
-    const aRaw = aIn ?? this.aRaw.fill(this.knobAmp, 0, n);
+    const uRaw = uIn ?? setAll(this.uRaw, this.knobParam, n);
+    const aRaw = aIn ?? setAll(this.aRaw, this.knobAmp, n);
     if (!this.uInit) {
       this.uState[0] = uRaw[0]!;
       this.uInit = true;
@@ -325,7 +342,7 @@ export class Dynamical implements BlockRuntime {
     if (qIn === null) {
       // Fixed pitch: the same coefficient for the whole chunk (bit-identical, one exp).
       const tau = Math.max(DECLICK_TIME_S, PARAM_SLEW_PERIODS / this.frequencyHz);
-      this.alphaU.fill(1 - Math.exp(-1 / (tau * fs)), 0, n);
+      setAll(this.alphaU, 1 - Math.exp(-1 / (tau * fs)), n);
     } else {
       for (let i = 0; i < n; i++) {
         const tau = Math.max(DECLICK_TIME_S, PARAM_SLEW_PERIODS / this.freq[i]!);
@@ -336,11 +353,14 @@ export class Dynamical implements BlockRuntime {
     onePole(aRaw, this.aState, this.alpha, this.a, n);
     this.gains(n);
 
-    // 3–5. Parameter and time scale.
+    // 3–5. Parameter and time scale (p = p_min + clip(u)·(p_max − p_min), P(u) from the table).
+    interpInto(this.u, e.uGrid, e.periodTable, this.periodU, n);
+    const pMin = e.pMin;
+    const pSpan = e.pMax - e.pMin;
     for (let i = 0; i < n; i++) {
       const u = this.u[i]!;
-      this.pValues[i] = e.paramValue(u);
-      const period = this.pitchLock ? e.period(u) : this.periodUnlocked;
+      this.pValues[i] = pMin + (u < 0 ? 0 : u > 1 ? 1 : u) * pSpan;
+      const period = this.pitchLock ? this.periodU[i]! : this.periodUnlocked;
       this.dtau[i] = (period * this.freq[i]!) / fs;
     }
 
@@ -348,7 +368,7 @@ export class Dynamical implements BlockRuntime {
     this.resets += this.integrate(this.rk4, n);
 
     // 7. Level-normalized signal, tonality mix, amp curve, then the DC blocker.
-    const tRaw = tIn ?? this.tRaw.fill(this.knobTonality, 0, n);
+    const tRaw = tIn ?? setAll(this.tRaw, this.knobTonality, n);
     if (!this.tInit) {
       this.tState[0] = tRaw[0]!;
       this.tInit = true;
@@ -367,7 +387,7 @@ export class Dynamical implements BlockRuntime {
         // The fundamental actually heard: f with pitch lock, f·P(u_default)/P(u) without.
         this.fA[i] = this.pitchLock
           ? this.freq[i]!
-          : (this.freq[i]! * this.periodUnlocked) / e.period(this.u[i]!);
+          : (this.freq[i]! * this.periodUnlocked) / this.periodU[i]!;
       }
     }
     this.normalized(this.tableLeft, this.obsIndex, this.rLeft, n);
@@ -400,22 +420,26 @@ export class Dynamical implements BlockRuntime {
 
   /** g(a) per sample: a^1.661 (perceptual), a (linear), or a blend while the law glides. */
   private gains(n: number): void {
-    const curve = this.curve;
+    this.curve.fill(this.curveMix, n);
     for (let i = 0; i < n; i++) {
       const a = this.a[i]!;
-      const m = curve.next();
-      this.g[i] = m === 1 ? a ** AMP_EXPONENT : m === 0 ? a : m * a ** AMP_EXPONENT + (1 - m) * a;
+      const m = this.curveMix[i]!;
+      // One formula for every m: it is exactly a^1.661 at m = 1 and exactly a at m = 0
+      // (0·x = 0 and x + 0 = x for finite x), so the glide path is the steady path.
+      this.g[i] = m * a ** AMP_EXPONENT + (1 - m) * a;
     }
   }
 
   /** r = min(0.25/σ, 0.8/π) · (x_obs − μ) (spec §4.2 step 7). */
   private normalized(t: ObservableTable, index: number, r: Float64Array, n: number): void {
-    const e = this.entry;
+    const grid = this.entry.uGrid;
+    interpInto(this.u, grid, t.std, this.sigma, n);
+    interpInto(this.u, grid, t.peak, this.peak, n);
+    interpInto(this.u, grid, t.mean, this.mu, n);
     const dim = this.dim;
     for (let i = 0; i < n; i++) {
-      const u = this.u[i]!;
-      const scale = Math.min(RMS_TARGET / e.at(t.std, u), PEAK_TARGET / e.at(t.peak, u));
-      r[i] = scale * (this.traj[i * dim + index]! - e.at(t.mean, u));
+      const scale = Math.min(RMS_TARGET / this.sigma[i]!, PEAK_TARGET / this.peak[i]!);
+      r[i] = scale * (this.traj[i * dim + index]! - this.mu[i]!);
     }
   }
 

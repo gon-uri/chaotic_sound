@@ -28,8 +28,10 @@ musicians curious about math.
 - `catalog/`: generated JSON (systems, ranges, tuning tables). It is the contract between the
   lab and the engines. Never edit it by hand; regenerate it.
 - `examples/patches/`: demo patches (patch JSON). They double as cross-engine fixtures.
-- `examples/golden/`: reference vectors exported by the Python lab for cross-engine tests.
-  Generated; never hand-edited.
+- `examples/golden/`: reference vectors exported by the Python lab for cross-engine tests,
+  and the golden-only fixture patches (`patches/`). Generated; never hand-edited.
+- `examples/documents.json`: hand-written edge-case patch documents with their expected
+  outcome (accept/reject), read by both engines' tests (ADR 0016).
 - `docs/`: vision, v1 spec, architecture, decision records (ADRs), math notes, studies, system
   pages.
 
@@ -70,7 +72,9 @@ TypeScript (run from the repo root; Node 24 is in `~/.local/node`, see `docs/REV
   signals are in [0, 1]; audio is nominally in [-1, 1].
 - Control inputs take one cable. Combining controllers needs a `control_sum` box (ADR 0013).
 - Every engine must pass the golden tests. A behavior change means: update the spec, then the
-  Python reference, then regenerate the golden vectors, then the TypeScript engine.
+  Python reference, then regenerate the golden vectors (`export_golden.py`, about 100 s),
+  then the TypeScript engine, then re-record its prefix errors with
+  `GOLDEN_RECORD=1 npx vitest run packages/engine/test/golden.test.ts` (ADR 0016).
 - When you make a non-trivial decision, record it as an ADR and add a line to `docs/REVIEW.md`.
 - The owner is fluent in Python and new to TypeScript and web development. Explain TS and web
   concepts when they come up, and keep the TS code readable for a Python programmer.

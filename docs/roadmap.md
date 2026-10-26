@@ -34,7 +34,8 @@ Goal: prove that "tuned chaos" works and sounds interesting before building any 
 - [x] Adapters: Node CLI renderer + WAV, AudioWorklet processor, offline renderer.
 - [x] A developer playground (`apps/playground`) to hear the patches live in the browser.
 - [x] Independent review of the TS engine; fixes in spec v0.4 (ADR 0014). Follow-up tests,
-      golden fixtures and per-system kernels in progress.
+      golden contract, shared document rules and per-system kernels (ADR 0016).
+- [ ] A data-only probe on `EnginePort` for the last two golden checks (before a C++ core).
 - [x] Offline rendering in a Web Worker (`adapters/worker/`): WAV export off the UI thread,
       10 s in about 0.3 s in the browser.
 - [x] CI workflow (`.github/workflows/ci.yml`): both test suites, on pull requests and on

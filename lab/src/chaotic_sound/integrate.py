@@ -31,7 +31,7 @@ from chaotic_sound.systems.base import SystemDef
 TWO_PI = 2.0 * math.pi
 MAX_SUBSTEPS = 4096
 """Upper bound on RK4 sub-steps per sample (spec §4.2 step 5); a cost guard, never reached
-for valid notes (about 23 at C8)."""
+for valid notes (at most 42, at C8)."""
 
 
 @njit

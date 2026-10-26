@@ -4,7 +4,8 @@
  */
 
 import type { Catalog } from "./catalog.ts";
-import { makeRk4Scratch, renderTuned } from "./dsp/rk4.ts";
+import { tunedRenderer } from "./dsp/kernels.ts";
+import { makeRk4Scratch } from "./dsp/rk4.ts";
 import { getSystem } from "./dsp/systems.ts";
 
 export interface AttractorPoints {
@@ -35,8 +36,9 @@ export function attractorPoints(
   const dt = entry.period(u) / samplesPerPeriod;
   const x = Float64Array.from(entry.initialCondition);
   const scratch = makeRk4Scratch(dim);
+  const render = tunedRenderer(system); // the same fast kernel the audio uses
   const run = (n: number, out: Float64Array): void => {
-    renderTuned(
+    render(
       {
         rhs: system.rhs,
         x,

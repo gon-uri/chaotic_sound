@@ -1,6 +1,7 @@
 /** Top bar: add boxes, examples, file operations, undo/redo, play. */
 
 import type { BlockType, PatchDocument } from "@chaotic-sound/engine";
+import { withoutDefaults } from "@chaotic-sound/engine";
 import { useReactFlow } from "@xyflow/react";
 import type { ReactNode } from "react";
 import { play, stop, useAudioStore } from "./audio/engineBridge.ts";
@@ -83,7 +84,9 @@ export function Toolbar(): ReactNode {
         </label>
         <button
           type="button"
-          onClick={() => download("patch.json", JSON.stringify(store().doc, null, 2))}
+          onClick={() =>
+            download("patch.json", JSON.stringify(withoutDefaults(store().doc), null, 2))
+          }
         >
           {t.save}
         </button>

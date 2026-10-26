@@ -23,12 +23,15 @@ export class Sum implements BlockRuntime {
   readonly outputs: readonly PortSignal[];
   readonly id: string;
   private readonly gain: Glide;
+  /** The gain per sample (filled from the glide once per chunk). */
+  private readonly g: Float64Array;
   private readonly left: Float64Array;
   private readonly right: Float64Array;
 
   constructor(id: string, params: Record<string, ParamValue>, ctx: BlockContext) {
     this.id = id;
     this.gain = new Glide(knob("sum", "gain", params.gain));
+    this.g = new Float64Array(ctx.maxFrames);
     this.left = new Float64Array(ctx.maxFrames);
     this.right = new Float64Array(ctx.maxFrames);
     this.outputs = [[this.left, this.right]];
@@ -45,17 +48,16 @@ export class Sum implements BlockRuntime {
   }
 
   process(n: number, inputs: readonly (PortSignal | null)[]): void {
+    this.gain.fill(this.g, n); // glides even with nothing connected
     const x = inputs[0];
     if (!x) {
-      this.left.fill(0, 0, n);
-      this.right.fill(0, 0, n);
+      for (let i = 0; i < n; i++) this.left[i] = this.right[i] = 0;
       return;
     }
     const xl = x[0]!;
     const xr = x[1]!;
-    const gain = this.gain;
     for (let i = 0; i < n; i++) {
-      const g = gain.next();
+      const g = this.g[i]!;
       this.left[i] = g * xl[i]!;
       this.right[i] = g * xr[i]!;
     }
@@ -73,11 +75,13 @@ export class ControlSum implements BlockRuntime {
   readonly outputs: readonly PortSignal[];
   readonly id: string;
   private readonly gain: Glide;
+  private readonly g: Float64Array;
   private readonly out: Float64Array;
 
   constructor(id: string, params: Record<string, ParamValue>, ctx: BlockContext) {
     this.id = id;
     this.gain = new Glide(knob("control_sum", "gain", params.gain));
+    this.g = new Float64Array(ctx.maxFrames);
     this.out = new Float64Array(ctx.maxFrames);
     this.outputs = [[this.out]];
   }
@@ -93,15 +97,15 @@ export class ControlSum implements BlockRuntime {
   }
 
   process(n: number, inputs: readonly (PortSignal | null)[]): void {
+    this.gain.fill(this.g, n); // glides even with nothing connected
     const x = inputs[0];
     if (!x) {
-      this.out.fill(0, 0, n);
+      for (let i = 0; i < n; i++) this.out[i] = 0;
       return;
     }
     const xs = x[0]!;
-    const gain = this.gain;
     for (let i = 0; i < n; i++) {
-      const v = gain.next() * xs[i]!;
+      const v = this.g[i]! * xs[i]!;
       this.out[i] = v < 0 ? 0 : v > 1 ? 1 : v;
     }
   }
@@ -123,14 +127,14 @@ export class Output implements BlockRuntime {
   readonly main: PortSignal;
   readonly id: string;
   private readonly volume: Glide;
-  private lastKnob = Number.NaN;
-  private lastGain = 0;
+  private readonly knobValues: Float64Array;
   private readonly left: Float64Array;
   private readonly right: Float64Array;
 
   constructor(id: string, params: Record<string, ParamValue>, ctx: BlockContext) {
     this.id = id;
     this.volume = new Glide(knob("output", "volume", params.volume));
+    this.knobValues = new Float64Array(ctx.maxFrames);
     this.left = new Float64Array(ctx.maxFrames);
     this.right = new Float64Array(ctx.maxFrames);
     this.main = [this.left, this.right];
@@ -147,22 +151,16 @@ export class Output implements BlockRuntime {
   }
 
   process(n: number, inputs: readonly (PortSignal | null)[]): void {
+    this.volume.fill(this.knobValues, n); // glides even with nothing connected
     const x = inputs[0];
     if (!x) {
-      this.left.fill(0, 0, n);
-      this.right.fill(0, 0, n);
+      for (let i = 0; i < n; i++) this.left[i] = this.right[i] = 0;
       return;
     }
     const xl = x[0]!;
     const xr = x[1]!;
-    const volume = this.volume;
     for (let i = 0; i < n; i++) {
-      const knobValue = volume.next();
-      if (knobValue !== this.lastKnob) {
-        this.lastKnob = knobValue; // pow only when the knob moves
-        this.lastGain = knobValue ** AMP_EXPONENT;
-      }
-      const v = this.lastGain;
+      const v = this.knobValues[i]! ** AMP_EXPONENT; // the perceptual curve (spec §4.4)
       const l = softClip(v * xl[i]!);
       const r = softClip(v * xr[i]!);
       this.left[i] = Number.isNaN(l) ? 0 : l;

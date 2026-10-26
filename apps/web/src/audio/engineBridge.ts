@@ -28,6 +28,8 @@ export const useAudioStore = create<AudioState>(() => ({
 
 let ctx: AudioContext | null = null;
 let node: AudioWorkletNode | null = null;
+/** Set when the processor crashed: the next Play builds a new context and node. */
+let dead = false;
 
 function send(msg: ToWorklet): void {
   node?.port.postMessage(msg);
@@ -38,6 +40,12 @@ onEngineMessage((msg) => send(msg));
 
 export async function play(): Promise<void> {
   try {
+    if (dead && ctx !== null) {
+      void ctx.close(); // the old node can never play again
+      ctx = null;
+      node = null;
+      dead = false;
+    }
     if (ctx === null) {
       ctx = new AudioContext({ latencyHint: "interactive" });
       await ctx.audioWorklet.addModule(processorUrl);
@@ -45,9 +53,10 @@ export async function play(): Promise<void> {
       node.connect(ctx.destination);
       // An exception inside the processor stops it for good (the engine guards against this).
       node.onprocessorerror = () => {
+        dead = true;
         useAudioStore.setState({
           playing: false,
-          error: "The audio engine stopped. Reload the page.",
+          error: "The audio engine stopped. Press Play to restart it.",
         });
       };
       node.port.onmessage = (e: MessageEvent<FromWorklet>) => {

@@ -38,25 +38,11 @@ const fixture = JSON.parse(
 /**
  * Cases where this engine still disagrees with the shared rule, each waiting for a fix in
  * `src/core/patch.ts`. `test.fails` passes while the case fails, so the list must shrink
- * when the fix lands (the test then reports the case as unexpectedly passing).
- *
- * - Block ids must have a UTF-8 encoding (no unpaired surrogates, spec §4.2 step 9). Fix:
- *   reject them in `normalizePatch` next to the "non-empty string without '.'" check, for
- *   example with `/\p{Cs}/u.test(id)` (with the `u` flag a valid surrogate pair is one code
- *   point, so only unpaired halves match).
- * - A param named like an `Object.prototype` member (`toString`, `constructor`, `__proto__`,
- *   `hasOwnProperty`) is unknown, but `validateParams` finds the inherited member with
- *   `specs[name]` and accepts any value. Fix: look the spec up with
- *   `Object.hasOwn(specs, name) ? specs[name] : undefined`.
+ * when the fix lands (the test then reports the case as unexpectedly passing). Empty: the
+ * last ones (unpaired surrogates in ids, params named like Object.prototype members) were
+ * fixed on 2026-10-26.
  */
-const PENDING_TS_FIX = new Set([
-  "block_id_lone_surrogate",
-  "block_id_lone_surrogate_output",
-  "param_named_toString",
-  "param_named_constructor",
-  "param_named___proto__",
-  "param_named_hasOwnProperty_null",
-]);
+const PENDING_TS_FIX = new Set<string>([]);
 
 function load(doc: unknown): Engine {
   const engine = new Engine({ maxFrames: fixture.render_frames });

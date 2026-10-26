@@ -69,6 +69,12 @@ is a float64. JavaScript has no separate int type, so `3` and `3.0` are the same
 - **`...spread`.** `{ ...d, a: 1 }` is `{**d, "a": 1}`; `[...xs, y]` is `[*xs, y]`.
 - **`for (const x of xs)`** iterates values, like `for x in xs`. Avoid `for … in`, which
   iterates keys.
+- **`(...args)`** in a parameter list collects the remaining arguments into an array, like
+  `*args`. In a call, `f(...xs)` spreads an array into arguments, like `f(*xs)`.
+- **`void expr`** evaluates `expr` and discards the result. It is used to mark a promise that
+  is deliberately not awaited (`void play()`).
+- **`test.each(cases)(name, fn)` / `describe.each`** (Vitest) are `@pytest.mark.parametrize`:
+  `%s` and `%i` in the name are replaced by the case's values.
 - **`>>> 0`, `Math.imul`, `| 0`.** 32-bit integer arithmetic for the random number generator
   and CRC-32 (`src/core/dsp/rng.ts`). JavaScript numbers are float64, so these operators force
   unsigned or signed 32-bit wrap-around, like `& 0xFFFFFFFF` in Python.

@@ -78,7 +78,10 @@ interface Scanned {
 }
 
 /** Characters after which a `/` starts a regular expression rather than a division. */
-const REGEX_PREFIX = new Set(["", "(", ",", "=", ":", "[", "!", "&", "|", "?", "{", "}", ";"]);
+const REGEX_PREFIX = new Set(["", "(", ",", "=", ":", "[", "!", "&", "|", "?", "{", "}", ";", ">"]);
+/** Keywords after which a `/` starts a regular expression (`return /x/`, `=> /x/` is above). */
+const REGEX_KEYWORDS =
+  /(?:^|[^\w$])(?:return|typeof|case|do|else|in|of|new|delete|void|throw|yield|await)$/;
 
 /** Tokenize just enough of TypeScript to separate code from strings and comments. */
 function scan(src: string): Scanned {
@@ -134,7 +137,10 @@ function scan(src: string): Scanned {
       code += "`";
       i = templateText(i + 1);
       if (src[i - 1] === "`") code += "`";
-    } else if (c === "/" && REGEX_PREFIX.has(lastSignificant())) {
+    } else if (
+      c === "/" &&
+      (REGEX_PREFIX.has(lastSignificant()) || REGEX_KEYWORDS.test(code.trimEnd()))
+    ) {
       let j = i + 1;
       let inClass = false;
       while (j < n && src[j] !== "\n") {
@@ -238,6 +244,7 @@ describe("the purity checker", () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: this string is fixture source code
     ["fetch inside a template substitution", "const s = `${fetch(u)}`;"],
     ["async function", "async function f() {}"],
+    ["fetch hidden after a regex with a quote", 'const f = () => /"/; fetch(u);'],
   ];
   test.each(bad)("flags %s", (_, src) => {
     expect(violations(where, src)).not.toEqual([]);
@@ -249,6 +256,8 @@ describe("the purity checker", () => {
     ["words inside strings", 'const s = "call fetch() on globalThis"; const t = `self ${x} Date`;'],
     ["words inside comments", "// fetch(url)\n/* globalThis.process */ const a = 1;"],
     ["a regular expression", 'const RE = /^([A-G])("?)$/u; const q = "ok";'],
+    ["a regex after return and =>", 'function f() { return /"/; }\nconst g = () => /"/.test(s);'],
+    ["a division", "const h = (a + b) / 2 / c;"],
     [
       "a core import",
       'import { interp } from "./catalog.ts";\nimport type { X } from "../ports.ts";',

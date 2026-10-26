@@ -7,7 +7,7 @@
  * memory load or store with a bounds check. The cost study measured this structure ("variant
  * A") 1.5–2.7× faster per step than the literal port ("variant B", `renderTuned`);
  * `bench/kernels.ts` measures it in this engine. It matters at high notes, where one sample
- * takes up to about 36 RK4 sub-steps.
+ * takes up to 42 RK4 sub-steps (Lorenz and Rikitake at the worst knob).
  *
  * Results are bit-identical to `renderTuned`, hence to the Python reference. Every RHS
  * expression is the one in `systems.ts` with the array elements renamed (x[0] → x, …), and
@@ -46,10 +46,10 @@ function outside(v: number, lo: number, hi: number): boolean {
   return !Number.isFinite(v) || v < lo || v > hi;
 }
 
-/** A phase variable wrapped to [0, 2π), as in wrapPhases. */
+/** A phase variable wrapped to [0, 2π), as in wrapPhases (and Python's %: −0 → +0). */
 function wrapPhase(v: number): number {
   const r = v % TWO_PI;
-  return r < 0 ? r + TWO_PI : r;
+  return r < 0 ? r + TWO_PI : r + 0;
 }
 
 /** Lorenz: σ = p[0], ρ = p[1] (modulated), β = p[2]. */

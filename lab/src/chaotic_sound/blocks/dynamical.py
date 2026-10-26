@@ -175,7 +175,9 @@ class Dynamical(Block):
         highest = max(self.frequency_hz, midi_to_hz(self.midi_max))
         if not highest < sample_rate / 2:
             nyquist = sample_rate / 2
-            raise ValueError(f"dynamical '{self.id}': {highest:.1f} Hz is not below {nyquist} Hz")
+            raise ValueError(
+                f"dynamical '{self.id}': {highest:.1f} Hz is not below Nyquist ({nyquist} Hz)"
+            )
         self.sample_rate = float(sample_rate)
         self._x = self.initial_state()
         self._x_reset = self._x.copy()

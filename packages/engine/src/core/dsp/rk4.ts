@@ -6,7 +6,7 @@
 import type { Rhs } from "./systems.ts";
 
 export const TWO_PI = 2 * Math.PI;
-/** Upper bound on RK4 sub-steps per sample (a cost guard; about 23 are needed at C8). */
+/** Upper bound on RK4 sub-steps per sample (a cost guard; at most 42 are needed, at C8). */
 export const MAX_SUBSTEPS = 4096;
 
 /** Scratch arrays for one RK4 step (allocate once per box). */
@@ -53,9 +53,8 @@ export function rk4Step(
 /** Wrap phase variables to [0, 2π) with the floating-point remainder (Python's `%`). */
 export function wrapPhases(x: Float64Array, phaseIndices: readonly number[]): void {
   for (const i of phaseIndices) {
-    let r = x[i]! % TWO_PI;
-    if (r < 0) r += TWO_PI;
-    x[i] = r;
+    const r = x[i]! % TWO_PI;
+    x[i] = r < 0 ? r + TWO_PI : r + 0; // + 0 turns −0 into +0, as Python's % does
   }
 }
 

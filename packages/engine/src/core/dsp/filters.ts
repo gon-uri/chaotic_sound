@@ -96,34 +96,69 @@ export function softClip(x: number, knee: number = SOFT_CLIP_KNEE): number {
  * plain value (and to the reference engine, which has no live changes).
  */
 export class Glide {
-  /** The value used for the current sample. */
-  current: number;
-  /** The value the setting is moving to (set it to change the setting live). */
-  target: number;
+  /** [current, target]: kept in a typed array so updating them never boxes a number. */
+  private readonly state = new Float64Array(2);
   private alpha = 1;
 
   constructor(value: number) {
-    this.current = value;
-    this.target = value;
+    this.state[0] = value;
+    this.state[1] = value;
+  }
+
+  /** The value used for the current sample. */
+  get current(): number {
+    return this.state[0]!;
+  }
+
+  /** The value the setting is moving to (set it to change the setting live). */
+  get target(): number {
+    return this.state[1]!;
+  }
+
+  set target(value: number) {
+    this.state[1] = value;
   }
 
   /** Start a new render at `sampleRate` with no glide in progress. */
   reset(timeConstantS: number, sampleRate: number): void {
     this.alpha = onePoleCoefficient(timeConstantS, sampleRate);
-    this.current = this.target;
+    this.state[0] = this.state[1]!;
   }
 
   /** True while no glide is in progress. */
   get steady(): boolean {
-    return this.current === this.target;
+    return this.state[0] === this.state[1];
+  }
+
+  /**
+   * Write the next `n` values into `out` (same arithmetic as `next()`). Use this in audio
+   * loops: the state stays in locals, so nothing is boxed per sample.
+   */
+  fill(out: Float64Array, n: number): void {
+    const state = this.state;
+    let current = state[0]!;
+    const target = state[1]!;
+    const alpha = this.alpha;
+    for (let i = 0; i < n; i++) {
+      if (current !== target) {
+        current += alpha * (target - current);
+        if (Math.abs(target - current) < GLIDE_SNAP) current = target;
+      }
+      out[i] = current;
+    }
+    state[0] = current;
   }
 
   /** Advance one sample and return the value for it. */
   next(): number {
-    if (this.current !== this.target) {
-      this.current += this.alpha * (this.target - this.current);
-      if (Math.abs(this.target - this.current) < GLIDE_SNAP) this.current = this.target;
+    const state = this.state;
+    let current = state[0]!;
+    const target = state[1]!;
+    if (current !== target) {
+      current += this.alpha * (target - current);
+      if (Math.abs(target - current) < GLIDE_SNAP) current = target;
+      state[0] = current;
     }
-    return this.current;
+    return current;
   }
 }

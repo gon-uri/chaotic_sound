@@ -23,3 +23,14 @@ Read first: `docs/math/tuning.md` (how tuning and ranges work) and ADR 0010. Wor
 7. **Docs.** Add `docs/systems/<name>.md` (same structure as the other pages, including "In chaotic_sound" with the measured facts). Add the system to the tables in `docs/spec-v1.md` §7 and `docs/math/tuning.md` §4, and add a line to `docs/REVIEW.md`.
 8. **Demo.** Add a `voice()` demo in `scripts/render_demos.py`, render it and listen.
 9. Commit with a message summarizing the range, the method and the accuracy.
+
+## TypeScript engine (since ADR 0016)
+
+- Add the system's RHS to `packages/engine/src/core/dsp/systems.ts` exactly as in the Python
+  definition (same arithmetic order).
+- Add its hand-written kernel to `packages/engine/src/core/dsp/kernels.ts`, following the
+  template of the others. `test/kernels.test.ts` requires every system to have one and checks
+  it bitwise against the generic `renderTuned`.
+- Re-export the golden vectors, then re-record the TS prefix errors
+  (`GOLDEN_RECORD=1 npx vitest run packages/engine/test/golden.test.ts`).
+

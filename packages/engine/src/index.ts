@@ -35,6 +35,7 @@ export {
   splitRef,
   validateParams,
   withDefaults,
+  withoutDefaults,
 } from "./core/patch.ts";
 export { type AttractorPoints, attractorPoints } from "./core/trajectory.ts";
 export type { Diagnostics, EnginePort } from "./ports.ts";
