@@ -1,0 +1,37 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "mod",
+      "type": "modulator",
+      "params": {
+        "shape": "ramp_down",
+        "period_s": 0.5,
+        "mode": "once"
+      }
+    },
+    {
+      "id": "osc",
+      "type": "dynamical",
+      "params": {
+        "system": "duffing",
+        "note": "D3"
+      }
+    },
+    {
+      "id": "out",
+      "type": "output"
+    }
+  ],
+  "cables": [
+    {
+      "from": "mod.out",
+      "to": "osc.amp"
+    },
+    {
+      "from": "osc.out",
+      "to": "out.in"
+    }
+  ]
+}

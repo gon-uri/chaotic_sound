@@ -1,0 +1,26 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "osc",
+      "type": "dynamical",
+      "params": {
+        "system": "lorenz",
+        "note": "E3",
+        "observable": "x",
+        "observable_right": "y"
+      }
+    },
+    {
+      "id": "out",
+      "type": "output"
+    }
+  ],
+  "cables": [
+    {
+      "from": "osc.out",
+      "to": "out.in"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "a",
+      "type": "dynamical",
+      "params": {
+        "system": "rossler",
+        "seed": 7
+      }
+    },
+    {
+      "id": "b",
+      "type": "dynamical",
+      "params": {
+        "system": "rossler",
+        "seed": 7
+      }
+    },
+    {
+      "id": "mix",
+      "type": "sum"
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "params": {
+        "volume": 1.0
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": "a.out",
+      "to": "mix.in"
+    },
+    {
+      "from": "b.out",
+      "to": "mix.in"
+    },
+    {
+      "from": "mix.out",
+      "to": "out.in"
+    }
+  ]
+}

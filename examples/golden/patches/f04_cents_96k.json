@@ -1,0 +1,25 @@
+{
+  "format": "chaotic-sound-patch",
+  "version": 0,
+  "blocks": [
+    {
+      "id": "osc",
+      "type": "dynamical",
+      "params": {
+        "system": "chua",
+        "note": "C4",
+        "cents": 37
+      }
+    },
+    {
+      "id": "out",
+      "type": "output"
+    }
+  ],
+  "cables": [
+    {
+      "from": "osc.out",
+      "to": "out.in"
+    }
+  ]
+}
