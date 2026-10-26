@@ -1,4 +1,4 @@
-<!-- Draft written by an AI agent; facts need human review before publishing. Last updated: 2026-10-25 -->
+<!-- Draft written by an AI agent; facts need human review before publishing. Last updated: 2026-10-26 -->
 
 # Chua's circuit
 
@@ -22,7 +22,7 @@ h(x) &= m_1 x + \tfrac{1}{2}(m_0 - m_1)\bigl(|x+1| - |x-1|\bigr)
 $$
 
 - $x$, $y$: voltages across the capacitors $C_1$ (wired across the diode) and $C_2$, divided by the diode's breakpoint voltage $E$; $z = R\,i_L/E$: the current through the inductor $L$, in units of $E/R$. Time is in units of $RC_2$ (the usual normalization).
-- $\alpha = C_2/C_1 = 15.6$ and $\beta = C_2R^2/L = 28$: ratios of component values.
+- $\alpha = C_2/C_1 = 15.6$ and $\beta = C_2R^2/L = 28$: ratios of component values (dysts' setting; in the app $\alpha$ is the knob, with default 15.8).
 - $h(x)$: Chua's diode, three straight segments with slope $m_0 = -8/7 \approx -1.143$ for $|x|<1$ and $m_1 = -5/7 \approx -0.714$ outside. Both slopes are negative: a "negative resistance".
 - The $y - x$ term in $\dot{x}$ (and $x - y$ in $\dot{y}$) is the current through the ordinary resistor $R$ that couples the two capacitors.
 
@@ -46,13 +46,13 @@ Kennedy saw the same story on a breadboard by tuning a single component: equilib
 
 ## Properties
 
-- **Attractor:** two interleaved spirals; Kaplan–Yorke dimension ≈ 2.11 (dysts).
-- **Equilibria:** the origin and $P^\pm = (\pm 1.5, 0, \mp 1.5)$, all unstable at the default, as Chua designed [1]. $P^\pm$ are saddle-foci (eigenvalues $\approx 0.31 \pm 4.52i$, $-6.07$): trajectories spiral outward until thrown across the middle.
+- **Attractor:** two interleaved spirals; Kaplan–Yorke dimension ≈ 2.11 (dysts, at $\alpha = 15.6$).
+- **Equilibria:** the origin and $P^\pm = (\pm 1.5, 0, \mp 1.5)$, all unstable at the default ($\alpha = 15.8$), as Chua designed [1]. $P^\pm$ are saddle-foci (eigenvalues $\approx 0.31 \pm 4.53i$, $-6.14$): trajectories spiral outward until thrown across the middle.
 - **Piecewise linear:** in each slab ($x<-1$, $|x|<1$, $x>1$) the equations are linear and exactly solvable, which made a proof possible [5, 6].
 - **Symmetry:** $(x,y,z)\mapsto(-x,-y,-z)$.
-- **Dissipation:** the divergence is $\alpha/7 - 1 \approx +1.23$ in the middle slab (volumes grow) and $-2\alpha/7 - 1 \approx -5.46$ outside; on average volumes shrink (dysts' exponents sum to ≈ −3.86).
-- **Lyapunov exponents:** we measure $\lambda \approx 0.455$ at the default. dysts' spectrum, $(0.46, 0.00, -4.32)$, agrees; its separate largest-exponent estimate, 1.23, is higher. Since $\lambda P \approx 0.67$, nearby states drift apart about twofold per cycle.
-- **Phase coherence:** partial. The spin around each scroll is fairly regular, with a period of about 1.4–1.7 time units across the knob's range (1.46 at the default; the linear estimate at $P^\pm$, $2\pi/4.52 \approx 1.39$, is slightly low). The hops between scrolls are irregular. $y$ is centred on 0 at every equilibrium, so the hops disturb it much less than $x$, which jumps between about ±1.5.
+- **Dissipation:** the divergence is $\alpha/7 - 1$ in the middle slab (≈ +1.26 at the default: volumes grow) and $-2\alpha/7 - 1$ outside (≈ −5.51); on average volumes shrink (dysts' exponents, at $\alpha = 15.6$, sum to ≈ −3.86).
+- **Lyapunov exponents:** we measure $\lambda \approx 0.40$ at the default and ≈ 0.43 at dysts' value 15.6. There dysts' spectrum, $(0.46, 0.00, -4.32)$, roughly agrees; its separate largest-exponent estimate, 1.23, is higher. Since $\lambda P \approx 0.59$ at the default, nearby states drift apart almost twofold per cycle ($e^{0.59} \approx 1.8$).
+- **Phase coherence:** partial. The spin around each scroll is fairly regular, with a period of about 1.4–1.7 time units across the knob's range (1.45 at the default; the linear estimate at $P^\pm$, $2\pi/4.53 \approx 1.39$, is slightly low). The hops between scrolls are irregular. $y$ is centred on 0 at every equilibrium, so the hops disturb it much less than $x$, which jumps between about ±1.5.
 - **Boundedness:** the three-segment model is not globally bounded; a physical circuit is.
 
 ## History
@@ -71,12 +71,14 @@ That night Chua reasoned that the Lorenz and Rössler systems both owe their cha
 
 Numbers are in the system's own time units.
 
-- **What you hear:** by default $y$, the most pitched variable. The app measures the period $P$ of $y$'s strongest spectral peak and plays your note with time scale $k = P\cdot f_0$.
-- **Knob range:** $\alpha$ from 13.7 to 18.05; the default 15.6 sits a little below the middle. About 91% of 33 tested points are chaotic.
-- **Pitch drift:** $P$ wanders (not monotonically) between about 1.41 and 1.69, a band about 3 semitones wide. At the default it is 1.464; dysts lists 1.4235, about half a semitone shorter. Pitch lock compensates. Without it, the note can rise about 0.6 semitone sharp or fall up to about 2.4 semitones flat, but that deepest drop occurs only inside a periodic window near $\alpha \approx 17.9$ ($P \approx 1.69$). In the chaotic part of the range the note falls at most about 1.9 semitones flat.
-- **Two characters:** from 13.7 to about 14.43 you hear a single scroll. At $\alpha \approx 14.43$ the two scrolls merge and the spread of $x$ roughly doubles.
-- **Periodic windows:** the project's sweep flags narrow windows at $\alpha \approx$ 14.1, 14.7, 14.8–14.85, 15.35, 15.95 and 16.85–16.9. The list is not complete: finer checks also find windows near 13.9, 15.1 and 17.9. Crossing one, the sound briefly locks into a clean harmonic tone.
-- **The ends:** the project's sweep finds periodic motion at $\alpha \approx 13.3$. In our simulations this is the period-doubling cascade (period 2 from about 13.15, period 4 near 13.6), which only reaches chaos at about 13.7, so that is where the range starts; the chaos there is still weak ($\lambda \approx 0.07$). At the top, trajectories escape to infinity from $\alpha \approx 18.45$; stopping at 18.05 keeps a safety margin.
+- **What you hear:** by default $y$, the most pitched variable. The app finds $y$'s strongest spectral peak and takes its period $P$ at the peak's power-weighted centre (the "peak centroid"). A chaotic peak is broad and lumpy; the centroid averages over the lumps, so it is steadier than the single highest point. Your note is played with time scale $k = P\cdot f_0$.
+- **Knob range:** $\alpha$ from 13.7 to 18.05. The default is 15.8, with the knob at 0.48, near the middle, so you can turn it both ways. dysts' value, 15.6, is kept only as a reference (the app measures its reference time scale there). The default is the chaotic point nearest the middle of the range (15.875) whose neighbours within 0.1 are chaotic too; the periodic window at 15.95 rules out 15.85 and 15.9. Of the 130 points the app tabulates across the range, about 91% are chaotic.
+- **Pitch drift:** $P$ wanders (not monotonically) between 1.409 and 1.685, a band about 3.1 semitones wide. It is about 1.50–1.53 on the single scroll, lowest (about 1.41–1.47) between $\alpha \approx 14.8$ and 15.9, and highest near the top. At the default it is 1.450. At dysts' value it is 1.464; dysts lists 1.4235, about half a semitone shorter. Pitch lock compensates. Without it, the period stays at the default's 1.450, so the note can rise about 0.5 semitone sharp (near $\alpha \approx 14.85$, at the edge of a window) or fall up to about 2.6 semitones flat. That deepest drop occurs only inside the periodic window at $\alpha \approx 17.91$ ($P \approx 1.68$); in the chaotic part of the range the note falls at most about 2.1 semitones flat, near the top.
+- **Two characters:** from 13.7 to about 14.43 you hear a single scroll. There are two mirror-image twins, and a box lands on one or the other depending on its history; heard on $y$ they sound the same (one is the other turned upside down). At $\alpha \approx 14.43$ the two scrolls merge and the spread of $x$ roughly doubles. The app evens out the level as the knob moves, so you hear the merge as a change of character, not of loudness.
+- **Periodic windows:** the app's table (points 0.034 apart) finds seven inside the range, at $\alpha \approx$ 13.90, 14.82, 15.09, 15.33–15.37, 15.94–15.98, 16.83–16.93 and 17.91. Narrower ones can slip between the points: spot checks every 0.005 also find windows near 14.1 and at 14.69–14.72, and show that the one at 14.82 really spans about 14.80–14.85. In a window the motion repeats exactly, so the buzz clears into a steady harmonic tone. On the double scroll, $y$'s spectral peak sharpens (prominence 0.85–0.93, against about 0.3–0.7 around the windows); on the single scroll, where the peak is already sharp (above 0.9), the change is subtler. If the orbit closes only after several loops (a period-3 window, say), faint undertones below the note can join in. Even the widest window, 16.83–16.93, is only about 2% of the knob's travel, so a sweep passes each window as a brief flash of clean tone; parking the knob inside one holds it. Windows also shift $P$ (by up to about 1 semitone at 17.91), and pitch lock follows.
+- **Where the range starts:** below 13.7 there is no chaos at all, down to $\alpha = 8$, the bottom of the explored range. Just below 13.7 is the period-doubling cascade (period 2 from about 13.15, period 4 near 13.6), which turns chaotic only at about 13.7; further down are the simple oscillations born at ≈10.1 and, below that, silence. So the range starts at the first chaotic point. The chaos there is still weak ($\lambda \approx 0.07$: nearby states separate by only about 10% per cycle).
+- **Where it stops:** from $\alpha \approx 18.45$ trajectories escape to infinity (in the three-segment model). The app keeps a safety margin of 0.36 in $\alpha$ (3% of the explored width) from any value where that happens, so 18.1 is already too close, and the range stops at the sweep point below it, 18.05.
+- **What did not limit it:** turning the knob up or down leads to the same sound (a two-way sweep found no hysteresis); $y$ stays pitched everywhere (prominence at least 0.24, above the 0.15 floor); and $P$ changes smoothly between neighbouring points (at most 5.8%, at the 17.91 window, against the 15% at which pitch lock would glitch).
 
 ## Sound notes
 
@@ -84,9 +86,11 @@ To be filled in after listening tests (Phase 1).
 
 Hypotheses (to be tested):
 
-- $y$ should sound clearly pitched. Its spectral-peak prominence is about 0.6 at the default, near 1 at the bottom (single scroll) and about 0.3 near the top, so the bottom should be most tonal and the top roughest.
-- $x$ (prominence ≈ 0.2) will likely growl: a buzz plus random square-wave-like jumps between scrolls, with strong low-frequency content.
+- $y$ should sound clearly pitched. Its spectral-peak prominence is about 0.65 at the default and 0.97 at the bottom (single scroll), but mostly 0.3–0.45 above $\alpha \approx 17$ and 0.24 at the top end, where the chaos is also strongest ($\lambda \approx 0.5$–0.7, against 0.07 at the bottom). So the bottom should be most tonal and the top roughest.
+- $x$ (prominence ≈ 0.2 at the default, 0.15 or less above $\alpha \approx 17$) will likely growl: a buzz plus random square-wave-like jumps between scrolls, with strong low-frequency content.
 - Crossing $\alpha \approx 14.43$ should sound like a sudden change of character, from a steady buzz to one with random flips.
+- A slow sweep should reveal the periodic windows as short moments of clean tone, most clearly at 16.83–16.93.
+- Pitch lock may slip by up to about half a semitone right at the edges of some narrow windows: spot checks found 46–48 cents at $\alpha = 14.80$ and 17.90, because those edges are sharper than the table's 0.034 spacing. Listen for a brief detuning there.
 
 ## References
 

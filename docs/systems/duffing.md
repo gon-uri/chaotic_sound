@@ -1,4 +1,4 @@
-<!-- Draft written by an AI agent; facts need human review before publishing. Last updated: 2026-10-25 -->
+<!-- Draft written by an AI agent; facts need human review before publishing. Last updated: 2026-10-26 -->
 
 # Duffing oscillator (forced)
 
@@ -24,7 +24,7 @@ $$
 - $\delta = 0.1$ is the damping.
 - $\beta = -1$ is the linear stiffness. Because it is negative, $x = 0$ is a hilltop.
 - $\alpha = 1$ is the cubic stiffness, which pulls large swings back.
-- $\gamma$ is the drive amplitude, the knob (default 0.35).
+- $\gamma$ is the drive amplitude, the knob (default 0.447; dysts uses 0.35).
 - $\omega = 1.4$ is the drive's angular frequency; the drive period is $2\pi/\omega \approx 4.488$.
 
 So $\ddot x + 0.1\,\dot x - x + x^3 = \gamma\cos(1.4\,t)$: a ball in the potential $V(x) = -x^2/2 + x^4/4$, with valleys at $x = \pm 1$ and a hill of height $1/4$ between them. Small swings in a valley have angular frequency $\sqrt{2}$, close to the drive's 1.4.
@@ -50,28 +50,28 @@ Beyond $\gamma_c$ a "horseshoe" of chaotic orbits brings chaotic transients and 
 | ≈ 0.31–0.3404 | Period doubling: the motion repeats every 2, 4 (≈ 0.336), 8 (≈ 0.3396), then 16 (≈ 0.3402) drive cycles. |
 | ≈ 0.3404 | Chaos, still confined to one well. |
 | ≈ 0.341 | The two one-well attractors merge into one symmetric attractor that hops between wells (probably an attractor-merging crisis). |
-| ≈ 0.341–0.355 | A small chaotic island that holds the default. |
+| ≈ 0.341–0.355 | A small chaotic island that holds dysts' value, 0.35. |
 | ≈ 0.355–0.375 | Period-5 window: two hops every five drive cycles. |
-| ≈ 0.375–0.565 | Main chaotic band, with hops rising from about 0.45 to 0.8 per cycle. Hair-thin windows lie near 0.500 (period 3), 0.5055 (period 7), 0.511 (period 5), 0.514 (period 7) and 0.517 (period 13). At 0.500, 0.5055 and 0.511 the orbit is reached only after a chaotic transient that can last thousands of cycles. |
+| ≈ 0.375–0.565 | Main chaotic band, with hops rising from about 0.45 to 0.8 per cycle. The knob range (0.386–0.508) lies inside it. Narrow windows, about 0.0001 to 0.001 wide, lie near 0.381 (period 7), 0.443 and 0.464 (period 5, each with a short period-doubling cascade at one edge), 0.500 (period 3), 0.5055 (period 7), 0.511 (period 5), 0.514 (period 7) and 0.517 (period 13). At 0.500, 0.5055 and 0.511 the orbit is reached only after a chaotic transient that can last thousands of cycles. |
 | ≳ 0.57 | Period-3 subharmonic, while the large one-cycle swing (below) captures more and more starting states. |
 
-The chaotic attractor is not alone. A large period-1 swing over both wells, crossing the hill twice per drive cycle, is stable from about γ ≈ 0.28 upward, so it coexists with the chaos across the whole knob range. Its share of starting states grows steadily with γ. For states drawn uniformly from $|x|, |y| \le 2$ at the start of a drive cycle, about a tenth end on the swing at the default and about a third at the top of the range.
+The chaotic attractor is not alone. A large period-1 swing over both wells, crossing the hill twice per drive cycle, is stable from about γ ≈ 0.28 upward, so it coexists with the chaos across the whole knob range. Its share of starting states grows steadily with γ. For states drawn uniformly from $|x|, |y| \le 2$ at the start of a drive cycle, about a tenth end on the swing at dysts' value (0.35), nearly a quarter at the knob's default (0.447), about 29% at the top of the knob range (0.508) and about a third near 0.57.
 
 ## Properties
 
 - **Attractor:** a strange attractor. Strobed once per drive cycle (a Poincaré section), it is a folded, layered curve.
 - **Lyapunov exponents:**
-  - A long run gives $\lambda_1 \approx 0.13$ at the default. Shorter runs of a few hundred cycles, like the project's sweep (which gave 0.149), scatter between about 0.11 and 0.15. dysts lists 0.140.
-  - $\lambda_2 = 0$ along the drive. The exponents sum to $-\delta$, so $\lambda_3 \approx -0.23$.
-  - Per drive cycle $\lambda_1 P \approx 0.58$: nearby states separate by a factor $e$ in about 1.7 cycles.
-- **Dimension:** Kaplan–Yorke $\approx 2.56$ from these exponents, the same value dysts lists. dysts also gives a correlation dimension of 2.02.
+  - At the knob's default, γ = 0.447, long runs give $\lambda_1 \approx 0.18$, matching the catalog's shorter estimate (0.179). At dysts' value, γ = 0.35, a long run gives $\lambda_1 \approx 0.13$; shorter runs of a few hundred cycles scatter between about 0.11 and 0.15 there, and dysts lists 0.140.
+  - $\lambda_2 = 0$ along the drive. The exponents sum to $-\delta$, so $\lambda_3 \approx -0.28$ at the default ($-0.23$ at γ = 0.35).
+  - Per drive cycle $\lambda_1 P \approx 0.80$ at the default: nearby states separate by a factor $e$ in about 1.25 cycles (0.57 and 1.7 cycles at γ = 0.35). Across the knob range it rises from about 0.6 at the bottom to 0.9 at the top.
+- **Dimension:** Kaplan–Yorke $\approx 2.64$ at the default. At γ = 0.35 the exponents give 2.56, the same value dysts lists; dysts also gives a correlation dimension of 2.02 there.
 - **Dissipation:** the divergence is a constant $-\delta$. Each drive cycle shrinks Poincaré-section areas by $e^{-2\pi\delta/\omega} \approx 0.64$ [14]. That is far gentler than Lorenz, so transients are long and attractors often coexist.
 - **Symmetry:** $(x, y, z) \mapsto (-x, -y, z + \pi)$. Cross-well chaos is symmetric, and one-well motions come in mirror pairs.
 - **Phase coherence:**
   - The drive is a perfect clock, so the spectrum has a sharp line at the drive frequency over a broad chaotic floor.
-  - $y$ keeps a quarter to a third of its power within ±3% of that line (about 0.24 at the default). $x$ keeps about 0.1, because well hopping feeds low frequencies.
+  - $y$ keeps a quarter to a third of its power within ±3% of that line (0.26–0.33 on the chaotic part of the knob range, about 0.30 at the default). $x$ keeps about 0.1, because well hopping feeds low frequencies.
   - Brunsden and Holmes predicted the shape of such spectra by treating the signal as a random train of near-homoclinic pulses, and compared the result with Duffing simulations [15].
-- **Boundedness:** on the chaotic attractor $|x|$ stays below about 1.9 across the range; the coexisting large swing reaches about 2.15. $z$ grows forever, so the app wraps it modulo $2\pi$.
+- **Boundedness:** on the chaotic attractor $|x|$ stays below about 1.8 across the knob range and below about 1.9 up to γ ≈ 0.57. The coexisting large swing reaches about 2.1 (about 2.15 near 0.57). $z$ grows forever, so the app wraps it modulo $2\pi$.
 
 ## History
 
@@ -87,16 +87,20 @@ The results fitted no accepted kind of oscillation and became a point of disagre
 
 ## In chaotic_sound
 
-All numbers are in the system's own time units.
+Numbers are in the system's own time units.
 
-- **Range:** the knob covers γ = 0.342–0.567. The default, 0.35, sits at 0.035 on the knob.
-- **Tuning:** the tuning period is the drive period, $P = 2\pi/\omega \approx 4.488$, which is exact and identical at every γ (0% change across the range). With time rescaled by $k = P f_0$, the drive runs at exactly the note $f_0$; the measured tuning error is under one cent.
-- **Heard variable:** $y$, which on the chaotic attractor is locked to the drive and peaks at $f_0$ (inside the period-5 window its strongest line moves to $3f_0/5$; see below). $x$ hops between wells, and subharmonics dominate its spectrum.
-- **Chaos:** most of the range is chaotic. The share of sampled points with $\lambda P > 0.05$ is 85% on a 33-point sweep and 89% on the 130-point table in the current catalog. $\lambda P$ mostly runs from about 0.5 to 1 per drive cycle, higher in the upper part of the range.
-- **Main periodic window:** γ ≈ 0.355–0.375, about 0.055–0.145 on the knob, just above the default. (The coarse sweep puts its edges at 0.357 and 0.374.) The sound becomes the period-5 orbit, which repeats every five drive cycles. Its true fundamental is therefore $f_0/5$, two octaves and a major third below the note. In $y$ the strongest line is $3f_0/5$, a major sixth below the note, with the $f_0/5$ fundamental also strong and the note itself weaker.
-- **Tiny windows:** the sweep flags single grid points at γ ≈ 0.511 and 0.517 (knob ≈ 0.75 and 0.78), part of a cluster of hair-thin windows around 0.50–0.52 (see the table). Some take thousands of drive cycles to settle, which is several seconds at a mid-range note, so the box may sound chaotic there for a while.
-- **A hidden steady tone:** the large one-cycle swing coexists with the chaos across the whole range (see above). A box that lands on it plays a steady, periodic tone at $f_0$ and stays there. Our simulations from the app's initial state did not land on it, but this is untested in the app, for example while the knob turns.
-- **Range ends:** below γ ≈ 0.34 the motion is periodic inside one well. From γ ≈ 0.57 the period-3 subharmonic takes over ($f_0/3$, an octave and a fifth down), and the large one-cycle swing captures more starting states.
+- **What you hear:** by default $y$, the velocity. It is the most pitched variable: on the chaotic attractor it is locked to the drive, and its strongest line is the note $f_0$. $x$ hops between the wells, and subharmonics dominate its spectrum.
+- **Tuning:** the app takes $P$ from the drive (the "drive" method), $P = 2\pi/\omega \approx 4.488$, because $y$'s measured period matches it. This period is exact and the same at every γ, so it changes by 0% across the knob range and pitch lock has nothing to correct. With time rescaled by $k = P f_0$, the drive runs at exactly the note; test renders at A2, A3 and A4 come out within about 0.1 cent.
+- **Knob range:** γ from 0.386 to 0.508. The default is 0.447, with the knob at 0.5, in the middle, so you can turn it both ways. It is the chaotic point nearest the middle of the range whose sweep neighbours (within about 0.006) are chaotic too.
+- **Why the default moved:** it used to be dysts' value, 0.35. That value is now kept only as a reference, and it is not even on the knob. It sits in the small chaotic island just below the period-5 window (0.355–0.375; see the table). Once the direction test (below) cut the range at γ ≈ 0.381, the island and the window were left on a stretch of their own that is mostly periodic, and a playable range must be at least 60% chaotic.
+- **Chaos:** nearly the whole range is chaotic. Of the 129 points the app tabulates, 98% have $\lambda P > 0.05$, and so do all 43 points of the coarser sweep that chose the range. $\lambda P$ rises from about 0.6 per drive cycle at the bottom to 0.9 at the top (0.8 at the default), so the chaos is strongest at the top.
+- **Periodic windows:** the table flags two single points, γ ≈ 0.4433 (knob ≈ 0.47) and 0.4643 (knob ≈ 0.64). Finer scans show that each is a period-5 window, at about 0.4425–0.4435 and 0.4641–0.4648. Each takes up less than 1% of the knob's travel and has a short period-doubling cascade (5, 10, 20, …) at one edge. The default lies only about 0.004 (3% of the travel) above the first one. Two more windows slip between the table's points: period 3 at about 0.5000–0.5002 (knob ≈ 0.93) and period 7 at about 0.5055–0.5061 (knob ≈ 0.98).
+- **What a window sounds like:** inside one the motion repeats exactly, so the chaotic hiss should clear into a steady, buzzy tone. A period-$n$ orbit repeats every $n$ drive cycles, so its true fundamental is $f_0/n$. In the two period-5 windows the note $f_0$ remains $y$'s strongest line, with a third to two-fifths of the power. Next come $3f_0/5$ (a major sixth below), $f_0/5$ (two octaves and a major third below) and $4f_0/5$ (a major third below). So the note stays, with undertones beneath it. At 0.500 more than half of $y$'s power moves to $f_0/3$, an octave and a fifth below, so the pitch may seem to drop. At 0.5055 the power splits between $f_0$ and $3f_0/7$, a little more than an octave below. A turning knob crosses any of these windows in a moment. A knob parked in one may still sound chaotic for a while: near 0.500 and 0.5055 the orbit is reached only after a chaotic transient that can last thousands of drive cycles, several seconds at a mid-range note.
+- **Where the range ends:** both ends were set by the direction test. The app sweeps the range upward and then downward and compares the two runs. Where they land on different motions, what you hear would depend on which way you turned the knob, so those spots and their close neighbours are left out. A first selection, which asked only for a bounded, steady, pitched stretch that is mostly chaotic and chaotic at both ends, took 0.342–0.567, the same as the previous version's range. The direction test then trimmed it twice.
+  - **Top, 0.508:** at γ ≈ 0.514 the upward run was still chaotic while the downward run had settled on a period-7 orbit. This is the cluster of narrow windows just above the range (period 5 at about 0.510–0.511, period 7 at 0.514 and period 13 at 0.517), each reached after long chaotic transients. The range stops at the last sweep point before it.
+  - **Bottom, 0.386:** at γ ≈ 0.381 a hair-thin period-7 window, about 0.0001 wide, coexists with the chaos. The downward run fell into it and the upward run did not. The range starts at the first sweep point above it. Below lie the period-5 window, dysts' value and, under 0.341, the one-well motions.
+- **What did not limit it:** the motion never escapes, since the double-well potential keeps it bounded at every γ. $y$ stays pitched everywhere (prominence at least 0.26, above the 0.15 floor), and $P$ never jumps. The level of $y$ grows by about 15% from the bottom of the range to the top, and the app evens that out as the knob moves.
+- **A hidden steady tone:** the large one-cycle swing coexists with the chaos across the whole range (see above). A box that lands on it plays a steady, periodic tone at $f_0$ with no chaotic halo. It stays there at every knob position, because the swing is stable across the range. The app starts on the chaotic attractor, though, and in our simulations it never fell off. About 550,000 drive cycles of random knob jumps, smoothed over two drive cycles like the app's parameter slew, plus repeated full sweeps up and down, never landed on the swing. Changing the pitch, by hand or through the pitch input, only rescales time, so it does not change which motion the box is on. This is still untested in the app itself.
 - **dysts' period:** dysts lists 7.45, which is not the drive period.
 
 ## Sound notes
@@ -106,7 +110,7 @@ To be filled in after listening tests (Phase 1).
 Hypotheses (to be tested):
 
 - $y$ should sound clearly pitched, with a breathy, crackling halo: a sharp line at the note over a broad chaotic floor. It is likely less pure than Rössler but steadier in pitch than the autonomous boxes.
-- Sweeping γ should change roughness, not pitch. Crossing the 0.355–0.375 window should snap to a clean, buzzy tone whose pitch may drop to $f_0/5$ or to its strong third harmonic $3f_0/5$. If the state falls onto the large one-cycle swing, the box should instead hold a steady tone at the note with no chaotic halo.
+- Sweeping γ should change roughness, not pitch, and the top of the range should sound roughest, since the chaos is strongest there. A sweep should pass the narrow windows as brief flashes of a cleaner buzz. Parked in a period-5 window (knob ≈ 0.47 or 0.64), the note should stay, with undertones at $3f_0/5$ and $f_0/5$ beneath it. Parked at knob ≈ 0.93 (period 3), the pitch may seem to drop to $f_0/3$. If the state falls onto the large one-cycle swing, the box should instead hold a steady tone at the note with no chaotic halo.
 - $x$ will likely sound like an irregular, lurching sub-bass with only a faint pitch.
 
 ## References
