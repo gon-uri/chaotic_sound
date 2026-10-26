@@ -206,7 +206,8 @@ Diagnostic figures (Lyapunov exponent, tuning curve, levels, crest factor, attra
 
 ## 5. Loudness and level
 
-Audio is y = g · s(u) · (x_obs − μ(u)), with s(u) = min(0.25/σ(u), 0.8/π(u)):
+Audio is y = g · m, where m is the level-normalized signal r = s(u) · (x_obs − μ(u)), with
+s(u) = min(0.25/σ(u), 0.8/π(u)), after the tonality mix (spec v0.5 §4.2 step 7, ADR 0015):
 
 - μ(u) and σ(u) are the mean and standard deviation of the heard variable;
 - π(u) is its robust peak, the 99.9th percentile of |x − μ|;
@@ -215,10 +216,12 @@ Audio is y = g · s(u) · (x_obs − μ(u)), with s(u) = min(0.25/σ(u), 0.8/π(
 
 So every box has an RMS of 0.25 (about −12 dBFS) at amp = 1, unless its signal is spiky. In
 that case the peak limit keeps it under the clipper. A 5 Hz DC blocker removes what is left of
-the offset.
+the offset. The tonality mix m = (1 − τ)^0.75·r + τ^0.75·t moves the level by at most about
+±1.2 dB on the five systems. The Output volume uses the same perceptual curve as amp (spec
+v0.5 §4.4).
 
-Measured on the demos (engine v0.3, catalog v2): the five single voices (`01_voice_*`, A3,
-default parameter) have RMS 0.248–0.253 and peaks 0.57–0.88. No demo had a safety reset,
+Measured on the demos (engine v0.3, catalog v2, before the tonality knob): the five single
+voices (`01_voice_*`, A3, default parameter) have RMS 0.248–0.253 and peaks 0.57–0.88. No demo had a safety reset,
 including the square modulator on Chua (`04_chua_square`) that used to reset.
 
 ## 6. Accuracy achieved

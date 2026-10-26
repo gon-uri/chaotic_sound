@@ -76,7 +76,8 @@ function by function.
 - Knob changes arrive as `setParams` edits and update the running block (ADR 0014).
 - Cost (`docs/studies/cost.md`, engine v0.3, M1): with per-system kernels one box is about
   0.3–0.6% of a core at A3 and 2–5% at A7 (worst knob). The engine's generic RK4 kernel costs
-  about 1.5–2.7× more; per-system kernels are being added.
+  about 1.5–2.7× more; per-system kernels are being added. The tonality step (ADR 0015) adds
+  about 0.9% of a core per voice at any note.
 
 ## Python lab package map
 
