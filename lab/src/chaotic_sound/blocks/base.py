@@ -20,8 +20,8 @@ import math
 import types
 import typing
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
-from dataclasses import dataclass, fields
+from collections.abc import Iterable, Mapping
+from dataclasses import MISSING, dataclass, fields
 from enum import StrEnum
 from typing import Any, ClassVar
 
@@ -80,6 +80,26 @@ def _check_unit(name: str, value: float) -> None:
         raise ValueError(f"{name} must be in [0, 1], got {value!r}")
 
 
+def check_block_id(block_id: Any) -> None:
+    """Raise ``ValueError`` unless ``block_id`` is a valid block id (spec §3).
+
+    A block id is a non-empty string without ``.`` that has a UTF-8 encoding: the default
+    seed is the CRC-32 of its UTF-8 bytes (spec §4.2 step 9), and patch files are UTF-8. A
+    Python ``str`` lacks one only when it holds an unpaired surrogate (U+D800 to U+DFFF
+    alone, which JSON can spell as an escape), so such ids are rejected for every block type.
+    """
+    ok = isinstance(block_id, str) and block_id != "" and "." not in block_id
+    if ok:
+        try:
+            block_id.encode("utf-8")
+        except UnicodeEncodeError:
+            ok = False
+    if not ok:
+        raise ValueError(
+            f"invalid block id {block_id!r} (a non-empty string without '.' or unpaired surrogates)"
+        )
+
+
 def _type_ok(value: Any, annotation: Any) -> bool:
     """Check a JSON-like value against a resolved annotation (float, int, bool, str, X | None)."""
     origin = typing.get_origin(annotation)
@@ -92,11 +112,12 @@ def _type_ok(value: Any, annotation: Any) -> bool:
     if annotation is int:
         return isinstance(value, int) and not isinstance(value, bool)
     if annotation is float:
-        return (
-            isinstance(value, int | float)
-            and not isinstance(value, bool)
-            and math.isfinite(float(value))
-        )
+        if not isinstance(value, int | float) or isinstance(value, bool):
+            return False
+        try:
+            return math.isfinite(float(value))
+        except OverflowError:  # an int beyond float64 (JavaScript's JSON.parse gives ±inf)
+            return False
     if annotation is str:
         return isinstance(value, str)
     return True
@@ -122,10 +143,19 @@ class BlockParams:
                 )
 
     def to_dict(self) -> dict[str, Any]:
-        """Parameters as a plain dict (JSON-ready), without ``None`` values."""
-        return {
-            f.name: getattr(self, f.name) for f in fields(self) if getattr(self, f.name) is not None
-        }
+        """Parameters that differ from their defaults, as a plain dict (JSON-ready).
+
+        Writers omit defaulted values and never write ``null`` (spec §5), so a field equal
+        to its default is left out, and so is ``None`` ("the documented default"). Building
+        the params again from this dict gives equal params.
+        """
+        out: dict[str, Any] = {}
+        for f in fields(self):
+            value = getattr(self, f.name)
+            if value is None or (f.default is not MISSING and value == f.default):
+                continue
+            out[f.name] = value
+        return out
 
 
 class Block(ABC):
@@ -146,15 +176,8 @@ class Block(ABC):
     def __init__(
         self, block_id: str, *, context: BlockContext | None = None, **params: Any
     ) -> None:
-        if not isinstance(block_id, str) or not block_id or "." in block_id:
-            raise ValueError(f"invalid block id {block_id!r} (a non-empty string without '.')")
-        allowed = {f.name for f in fields(self.Params)}
-        unknown = set(params) - allowed
-        if unknown:
-            raise ValueError(
-                f"{self.type_name} '{block_id}': unknown parameter(s) {sorted(unknown)}; "
-                f"allowed: {sorted(allowed)}"
-            )
+        check_block_id(block_id)
+        self.check_param_names(block_id, params)
         self.id = block_id
         self.context = context or BlockContext()
         try:
@@ -162,6 +185,17 @@ class Block(ABC):
         except ValueError as exc:
             raise ValueError(f"{self.type_name} '{block_id}': {exc}") from None
         self.sample_rate: float = 0.0
+
+    @classmethod
+    def check_param_names(cls, block_id: str, names: Iterable[str]) -> None:
+        """Raise ``ValueError`` if a name is not a field of :attr:`Params` (spec §5)."""
+        allowed = {f.name for f in fields(cls.Params)}
+        unknown = set(names) - allowed
+        if unknown:
+            raise ValueError(
+                f"{cls.type_name} '{block_id}': unknown parameter(s) {sorted(unknown)}; "
+                f"allowed: {sorted(allowed)}"
+            )
 
     # -- ports -------------------------------------------------------------------------
 

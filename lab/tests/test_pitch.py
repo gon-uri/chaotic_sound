@@ -31,11 +31,24 @@ def test_note_to_midi(note: str, midi: int) -> None:
 
 
 @pytest.mark.parametrize(
-    "bad", ["H4", "A", "4", "A#b#4", "", "A4.5", "Cbb4", " A4", "A10", "A-2", "A 4"]
+    "bad",
+    [
+        *("H4", "A", "4", "A#b#4", "", "A4.5", "Cbb4", " A4", "A10", "A-2", "A 4"),
+        # Nothing may follow or precede the name: a regex ending in `$` would accept "A4\n".
+        *("A4\n", "A4\r\n", "\nA4", "A4 ", "A4\t"),
+        # Only ASCII letters and digits ("A٤" has an Arabic-Indic four, "Ａ4" a fullwidth A).
+        *("A\u0664", "\uff214", "A\uff14"),
+    ],
 )
 def test_note_to_midi_rejects_garbage(bad: str) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="not a note name"):
         note_to_midi(bad)
+
+
+@pytest.mark.parametrize("bad", [440, None, 4.0, ["A4"]])
+def test_note_to_midi_rejects_non_strings(bad: object) -> None:
+    with pytest.raises(ValueError, match="not a note name"):
+        note_to_midi(bad)  # type: ignore[arg-type]
 
 
 def test_frequencies() -> None:

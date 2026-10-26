@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import typing
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +28,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from chaotic_sound.blocks import BLOCK_TYPES, Block, BlockContext, SignalType
+from chaotic_sound.blocks.base import check_block_id
 from chaotic_sound.catalog import Catalog
 
 PATCH_FORMAT = "chaotic-sound-patch"
@@ -36,6 +38,7 @@ DEFAULT_BLOCK_SIZE = 512
 _TOP_KEYS = {"format", "version", "blocks", "cables", "ui"}
 _BLOCK_KEYS = {"id", "type", "params", "ui"}
 _CABLE_KEYS = {"from", "to"}
+_UNPAIRED_SURROGATE = re.compile("[\ud800-\udfff]")
 
 
 class PatchError(ValueError):
@@ -123,6 +126,11 @@ def _json_params(type_name: Any, params: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _reject_constant(name: str) -> Any:
+    """``parse_constant`` hook of :func:`json.loads`: refuse ``NaN`` and ``±Infinity``."""
+    raise PatchError(f"{name} is not valid JSON (a patch is standard JSON, spec §5)")
+
+
 class Patch:
     """A graph of blocks connected by cables (spec §3, §5, §6).
 
@@ -156,13 +164,20 @@ class Patch:
         self.blocks[block.id] = block
         return block
 
-    def add_block(self, type_name: str, block_id: str, **params: Any) -> Block:
-        """Create a block of the given patch-JSON ``type`` and add it."""
+    def add_block(self, type_name: str, block_id: str, /, **params: Any) -> Block:
+        """Create a block of the given patch-JSON ``type`` and add it.
+
+        ``type_name`` and ``block_id`` are positional-only (the ``/``), so a parameter of any
+        name, even ``block_id`` or ``context``, reaches the unknown-parameter check and raises
+        ``ValueError`` instead of a ``TypeError`` about the call.
+        """
         cls = BLOCK_TYPES.get(type_name) if isinstance(type_name, str) else None
         if cls is None:
             raise PatchError(f"unknown block type {type_name!r}; known: {sorted(BLOCK_TYPES)}")
+        check_block_id(block_id)  # before the lookup below, which needs a hashable id
         if block_id in self.blocks:
             raise PatchError(f"duplicate block id {block_id!r}")
+        cls.check_param_names(block_id, params)
         return self.add(cls(block_id, context=self.context, **params))
 
     def connect(self, src: str, dst: str) -> Cable:
@@ -335,15 +350,30 @@ class Patch:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], catalog: Catalog | None = None) -> Patch:
-        """Build a patch from its JSON form; unknown keys, types or params are errors."""
+        """Build a patch from its JSON form (spec §5); every invalid document raises PatchError.
+
+        Unknown keys, types or params are errors. ``version`` is the number 0 (``0.0`` is the
+        same JSON number; ``false`` is not). ``blocks`` and ``cables`` may be omitted or
+        ``null``, which mean ``[]``, as in the TypeScript engine. The graph rules that need
+        the whole patch (exactly one output) are checked by :meth:`validate` and
+        :meth:`render`.
+        """
         if not isinstance(data, dict) or data.get("format") != PATCH_FORMAT:
             raise PatchError("not a chaotic_sound patch (missing 'format')")
-        if data.get("version") != PATCH_VERSION:
-            raise PatchError(f"unsupported patch version {data.get('version')!r}")
+        version = data.get("version")
+        # `False == 0` in Python, so exclude booleans explicitly (JSON's false is no number).
+        if isinstance(version, bool) or version != PATCH_VERSION:
+            raise PatchError(f"unsupported patch version {version!r}")
         if unknown := set(data) - _TOP_KEYS:
             raise PatchError(f"unknown top-level key(s) {sorted(unknown)}")
+        blocks = data.get("blocks")
+        cables = data.get("cables")
+        blocks = [] if blocks is None else blocks
+        cables = [] if cables is None else cables
+        if not isinstance(blocks, list) or not isinstance(cables, list):
+            raise PatchError("'blocks' and 'cables' must be arrays")
         patch = cls(catalog=catalog)
-        for spec in data.get("blocks", []):
+        for spec in blocks:
             if (
                 not isinstance(spec, dict)
                 or set(spec) - _BLOCK_KEYS
@@ -365,20 +395,31 @@ class Patch:
                 raise PatchError(str(exc)) from None
             if "ui" in spec:
                 patch.ui[spec["id"]] = spec["ui"]
-        for cable in data.get("cables", []):
+        for cable in cables:
             if not isinstance(cable, dict) or set(cable) != _CABLE_KEYS:
                 raise PatchError(f"bad cable entry {cable!r} (it needs exactly 'from' and 'to')")
             patch.connect(cable["from"], cable["to"])
         return patch
 
     def to_json(self, indent: int = 2) -> str:
-        """Patch JSON as a string."""
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+        """Patch JSON as a string.
+
+        Non-ASCII text is written as is, except unpaired surrogates (possible in ``ui``
+        strings), which are escaped like JavaScript's ``JSON.stringify`` does, so the text
+        can always be saved as UTF-8.
+        """
+        text = json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+        return _UNPAIRED_SURROGATE.sub(lambda m: f"\\u{ord(m.group()):04x}", text)
 
     @classmethod
     def from_json(cls, text: str, catalog: Catalog | None = None) -> Patch:
-        """Inverse of :meth:`to_json`."""
-        return cls.from_dict(json.loads(text), catalog=catalog)
+        """Inverse of :meth:`to_json`.
+
+        The text must be standard JSON: Python's parser also accepts ``NaN`` and
+        ``Infinity``, which JSON (and JavaScript's ``JSON.parse``) does not, so they raise
+        :class:`PatchError`.
+        """
+        return cls.from_dict(json.loads(text, parse_constant=_reject_constant), catalog=catalog)
 
     def save(self, path: str | Path) -> None:
         """Write the patch JSON to ``path`` (UTF-8)."""
