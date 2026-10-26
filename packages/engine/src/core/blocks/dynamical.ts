@@ -17,8 +17,9 @@ import {
   onePoleCoefficient,
   onePoleVarying,
 } from "../dsp/filters.ts";
+import { type TunedRenderer, tunedRenderer } from "../dsp/kernels.ts";
 import { midiToHz, NOTE_MAX, NOTE_MIN, noteToHz, noteToMidi } from "../dsp/pitch.ts";
-import { makeRk4Scratch, renderTuned, type TunedRenderArgs } from "../dsp/rk4.ts";
+import { makeRk4Scratch, type TunedRenderArgs } from "../dsp/rk4.ts";
 import { Mulberry32, stableSeed } from "../dsp/rng.ts";
 import { audioVariables, getSystem, type SystemDef } from "../dsp/systems.ts";
 import { TonalChannel, tonal } from "../dsp/tonal.ts";
@@ -143,6 +144,8 @@ export class Dynamical implements BlockRuntime {
   private readonly right: Float64Array;
   /** Arguments of the RK4 kernel, built once so process() allocates nothing. */
   private readonly rk4: TunedRenderArgs;
+  /** The RK4 kernel: this system's specialized one (dsp/kernels.ts), same result as renderTuned. */
+  private readonly integrate: TunedRenderer;
 
   constructor(id: string, given: Record<string, ParamValue>, ctx: BlockContext) {
     this.id = id;
@@ -244,6 +247,7 @@ export class Dynamical implements BlockRuntime {
       out: this.traj,
       scratch: makeRk4Scratch(this.dim),
     };
+    this.integrate = tunedRenderer(system);
   }
 
   /** Catalog initial condition plus the seeded perturbation (spec §4.2 step 9). */
@@ -341,7 +345,7 @@ export class Dynamical implements BlockRuntime {
     }
 
     // 6. Integrate.
-    this.resets += renderTuned(this.rk4, n);
+    this.resets += this.integrate(this.rk4, n);
 
     // 7. Level-normalized signal, tonality mix, amp curve, then the DC blocker.
     const tRaw = tIn ?? this.tRaw.fill(this.knobTonality, 0, n);

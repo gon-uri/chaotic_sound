@@ -1,0 +1,6 @@
+{
+  "//": "Benchmarks (Node). Not part of `npm run check`; type-check with `npx tsc -p packages/engine/bench`.",
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": { "lib": ["es2023"], "types": ["node"] },
+  "include": ["*.ts"]
+}
