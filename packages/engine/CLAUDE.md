@@ -6,11 +6,14 @@ This package implements `docs/spec-v1.md` identically to the Python reference in
 ## Layout
 
 - `src/core/`: the pure core. No DOM, Web Audio, Node, `fetch`, timers or `async`.
-  - `dsp/`: C-style kernels: `systems.ts`, `rk4.ts`, `filters.ts`, `pitch.ts`, `rng.ts`.
+  - `dsp/`: C-style kernels: `systems.ts`, `rk4.ts`, `filters.ts` (smoothers, DC blocker,
+    soft clip, `Glide` for live knobs), `pitch.ts`, `rng.ts`.
   - `catalog.ts` (catalog model, numpy-compatible `interp`), `patch.ts` (document rules,
-    edits), `graph.ts` (cable rules, ordering, input preparation), `blocks/`, `engine.ts`
-    (`Engine` implements `EnginePort`).
-- `src/ports.ts`: `EnginePort` (driving) and `DiagnosticsSink` (driven).
+    defaults, edits), `graph.ts` (cable rules, ordering, input preparation), `blocks/`,
+    `engine.ts` (`Engine` implements `EnginePort`; atomic loads and edits, one live-edit
+    path), `numeric.ts` (round half to even), `trajectory.ts` (attractor points for the UI).
+- `src/ports.ts`: `EnginePort`, the driving port (the core needs no driven ports: the catalog
+  arrives as data in `load()`).
 - `src/adapters/`: `offline.ts`, `wav.ts`, `node/` (CLI, file loading), `worklet/` (the
   AudioWorklet processor and its message protocol).
 - `test/`: Vitest. `golden.test.ts` holds the cross-engine tests;
@@ -44,4 +47,10 @@ parameter properties.
   That is also what keeps a C++ port mechanical.
 - **Readable for a Python programmer.** Comment TypeScript idioms when they first appear:
   `x!` means "this is not undefined" (needed with `noUncheckedIndexedAccess`); `import type`
-  imports only types; `readonly` makes a field immutable.
+  imports only types; `readonly` makes a field immutable. The owner's primer is
+  `docs/dev/typescript-for-python.md`; keep it in sync when new idioms appear.
+- **Defaults live in `BLOCK_SPECS`** (`patch.ts`). Blocks read them with `withDefaults` /
+  `defaultParam`; never write a default value a second time.
+- **Live settings** go through `BlockRuntime.setParam`, return `false` for settings that need
+  a new block, and must not click: smooth them (step 2 smoothers or `Glide`) unless they only
+  change the ODE's speed. A steady value must give bit-identical output.

@@ -1,7 +1,8 @@
 # chaotic_sound: v1 specification
 
-- Status: **v0.3** (2026-10-26). Updated after the owner's review, the Phase 1 studies and the
-  code review.
+- Status: **v0.4** (2026-10-26). v0.4 adds the live-edit rules, the NaN guards and the
+  document rules found by the TypeScript engine review (ADR 0014). v0.3 followed the owner's
+  review, the Phase 1 studies and the code review.
 - Scope: the behavior of every box in the first version. Every engine (the Python reference
   in `lab/`, the TypeScript engine, a possible future C++ core) must follow this document.
   Golden tests check that they do (ADR 0011).
@@ -50,7 +51,7 @@ English.
 - **Sample rate** fs: any positive rate. The browser uses the device rate; offline renders
   default to 48 000 Hz. Engines reject non-finite or non-positive rates.
 - **Audio** is stereo with a nominal range of [-1, 1]. A dynamical box at amp = 1 has an RMS
-  of at most 0.25 (spec §4.2 step 6).
+  of at most 0.25 (spec §4.2 step 7).
 - **Control** signals are mono, in [0, 1].
 - **Sanitizing.** Before a control value reaches any block input, NaN → 0, +∞ → 1, −∞ → 0,
   then it is clipped to [0, 1]. This applies to **each cable separately**.
@@ -121,11 +122,14 @@ notes from C0 (12) to C8 (108).
 Per chunk and per sample i:
 
 1. **Pitch.**
-   - Without a `pitch` cable: f = 440·2^((m − 69)/12)·2^(cents/1200), constant.
+   - Without a `pitch` cable: f = 440·2^((m + cents/100 − 69)/12), constant. (Written this
+     way, not as a product of two powers, because that is the exact float64 expression both
+     engines evaluate.)
    - With a cable: q is smoothed by the control smoother of step 2, with
-     y[−1] = the first q value. Then m(t) = m_min + q_s·(m_max − m_min), with m_min, m_max
-     the MIDI numbers of `pitch_min`, `pitch_max` (cents ignored), and
-     f = 440·2^((m(t) − 69)/12).
+     y[−1] = the first q value of the cable. If the cable is removed during playback, a
+     cable connected later starts again from its own first value. Then
+     m(t) = m_min + q_s·(m_max − m_min), with m_min, m_max the MIDI numbers of `pitch_min`,
+     `pitch_max` (cents ignored), and f = 440·2^((m(t) − 69)/12).
    - Engines reject f ≥ fs/2 at reset.
 2. **Control smoothing**: one-pole filters, output taken after the update:
    y[n] = y[n−1] + α_n·(x[n] − y[n−1]).
@@ -166,6 +170,9 @@ Per chunk and per sample i:
      [`bounds.lo`, `bounds.hi`], or Δτ is non-finite or negative.
    - On a reset, the state goes back to the perturbed initial condition of step 9, and a
      `safety_resets` counter is incremented and reported as diagnostics.
+   - Defense in depth: if a DC-blocker state (step 7) becomes non-finite after a chunk, both
+     channels' DC-blocker states are set to 0 and `safety_resets` is incremented. (With a
+     valid catalog this cannot happen; it keeps one bad sample from silencing a box forever.)
 9. **Initial condition and seeding (portable).**
    - seed = CRC-32 (IEEE 802.3, as in zlib) of the block id's UTF-8 bytes, ANDed with
      0x7FFFFFFF, unless `seed` is given.
@@ -202,9 +209,12 @@ out = gain · Σ inputs (0 with nothing connected).
 | `volume` | knob | [0, 1] | 0.8 |
 
 - y = softclip(volume · in), where softclip(x) = x for |x| ≤ 0.9, and
-  sign(x)·(0.9 + 0.1·tanh((|x| − 0.9)/0.1)) otherwise.
+  sign(x)·(0.9 + 0.1·tanh((|x| − 0.9)/0.1)) otherwise. A NaN sample becomes 0, so a broken
+  box never reaches the speakers.
 - **WAV export**: an offline render of a chosen length (default 10 s) at 48 kHz, stereo.
-  16-bit PCM (round(clip(x, −1, 1)·32767)) by default; 32-bit float is available.
+  The length is round(seconds·fs) frames and the header rate round(fs), rounding half to
+  even. 16-bit PCM (round(clip(x, −1, 1)·32767), half to even) by default; 32-bit float is
+  available.
 
 ### 4.5 Control Sum
 
@@ -239,12 +249,13 @@ connected, out = 0. gain = 0.5 averages two inputs.
 - **Defaults.** An omitted param takes its default, and `null` means the same as omission.
   Writers omit defaulted values and never write `null`.
 - **Types are checked.** Numbers may be integers or decimals (not booleans), settings are
-  strings, `pitch_lock` is a boolean, and `seed` is an integer.
+  strings, `pitch_lock` is a boolean, and `seed` is an integer. JSON has a single number
+  type, so an integer may be written `7` or `7.0` (not `7.5`).
 - **Unknown keys are errors:**
   - at the top level (allowed: `format`, `version`, `blocks`, `cables`, `ui`);
   - in blocks (`id`, `type`, `params`, `ui`);
   - in cables (`from`, `to`);
-  - and unknown params.
+  - and unknown params, even when their value is `null`.
 - **The optional `ui` object** of a block is preserved by every engine and otherwise ignored.
 - **Block order** in the file does not matter: engines process in topological order.
 
@@ -257,19 +268,31 @@ connected, out = 0. gain = 0.5 averages two inputs.
 - All blocks start at t = 0 when playback or a render starts.
 - **Determinism**: the same patch, sample rate and length give bit-identical output within an
   engine.
-- **Live parameter changes** (real-time engines, `EnginePort.setParam`):
+- **Live parameter changes** (real-time engines: `EnginePort.setParam`, or an `edit` with
+  `op: "setParams"`, which behave identically; ADR 0014):
   - Knobs (`param`, `amp`, `gain`, `volume`) and the pitch settings (`note`, `cents`,
-    `pitch_min`, `pitch_max`, `pitch_lock`, `amp_curve`) update inside the running block.
-    The block keeps its state, and the step 2 smoothers make the change gentle.
+    `pitch_min`, `pitch_max`, `pitch_lock`, `amp_curve`) update inside the running block,
+    which keeps its state.
+  - `param` and `amp` move through the step 2 smoothers. `gain`, `volume` and `amp_curve`
+    glide with the same one-pole as `amp` (5 ms); the glide snaps to its target within
+    1e-9, and a steady value is applied exactly (so renders without live changes are
+    bit-identical to the reference). For `amp_curve` the glide blends the two laws:
+    g = m·a_s^1.661 + (1 − m)·a_s, with m going from 1 to 0 or back.
+  - `note`, `cents`, `pitch_min`, `pitch_max` and `pitch_lock` take effect from the next
+    chunk. They change only how fast the ODE runs, so they do not click.
   - Other settings (`system`, `observable`, `observable_right`, `seed`, modulator settings)
-    recreate the block from t = 0.
+    recreate the block from t = 0. An edit that mixes both kinds recreates the block.
   - Blocks that are not edited are never reset.
+  - Loads and edits are atomic: an invalid patch, edit or value raises an error and leaves
+    the running patch exactly as it was.
 - **Across engines:**
-  - the first ~2000 samples agree to about 1e-9 (implementations differ only in the last
-    bits of libm functions);
-  - over longer times, chaos amplifies those differences, so engines must agree
-    statistically: level, pitch, spectral envelope and diagnostics;
-  - modulator outputs must agree exactly.
+  - the first samples agree to about 1e-9. In the golden configurations (48 kHz, the
+    fixture notes) that holds for about 2000 samples; the window shrinks roughly with f/fs,
+    because chaos amplifies last-bit differences of libm functions;
+  - over longer times engines must agree statistically: level, pitch, spectral envelope
+    and diagnostics;
+  - modulator outputs agree exactly, except the sine shape, which may differ in the last
+    bit of cos.
 
 ## 7. Systems and catalog
 

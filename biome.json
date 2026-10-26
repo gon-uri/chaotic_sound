@@ -10,6 +10,7 @@
       "apps/**/*.json",
       "*.json",
       "!**/node_modules",
+      "!.claude",
       "!**/dist",
       "!examples",
       "!catalog"

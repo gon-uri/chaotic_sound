@@ -34,4 +34,4 @@ export {
   validateParams,
 } from "./core/patch.ts";
 export { type AttractorPoints, attractorPoints } from "./core/trajectory.ts";
-export type { Diagnostics, DiagnosticsSink, EnginePort } from "./ports.ts";
+export type { Diagnostics, EnginePort } from "./ports.ts";

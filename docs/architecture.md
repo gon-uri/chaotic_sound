@@ -1,9 +1,8 @@
 # Architecture
 
 - Status: 2026-10-26.
-- Built: the Python lab (reference engine, analysis, catalog), and the TypeScript engine
-  (Phase 2, in progress).
-- Not built yet: the web UI (Phase 3).
+- Built: the Python lab (reference engine, analysis, catalog), the TypeScript engine
+  (Phase 2), and the editor MVP `apps/web` (Phase 3, in progress).
 - Principles: hexagonal architecture (ADR 0011); one engine runs the whole patch (ADR 0004);
   all sound in the browser (ADR 0001).
 
@@ -23,7 +22,7 @@ flowchart LR
   lab -- export_golden.py --> golden
   lab -- render_demos.py --> patches
   subgraph browser["Browser"]
-    ui["apps/web (Phase 3)<br/>patch editor, Learn-more pages"]
+    ui["apps/web<br/>patch editor, Learn-more pages"]
     worklet["AudioWorklet adapter"]
     worker["Web Worker adapter<br/>(WAV export)"]
     core["packages/engine core<br/>(TypeScript, pure)"]
@@ -39,12 +38,12 @@ flowchart LR
 
 | Ring | TypeScript (`packages/engine/src/`) | Python (`lab/src/chaotic_sound/`) |
 |---|---|---|
-| **Core: DSP kernel** (C-style, allocation-free) | `core/dsp/`: `rk4.ts`, `systems/*.ts`, `filters.ts`, `pitch.ts`, `rng.ts` | `integrate.py`, `systems/`, `dsp.py`, `pitch.py`, `rng.py` |
+| **Core: DSP kernel** (C-style, allocation-free) | `core/dsp/`: `rk4.ts`, `systems.ts`, `filters.ts`, `pitch.ts`, `rng.ts` | `integrate.py`, `systems/`, `dsp.py`, `pitch.py`, `rng.py` |
 | **Core: model** | `core/catalog.ts` (types, interpolation), `core/patch.ts` (document, validation) | `catalog.py` (model part), `patch.py` (graph part) |
 | **Core: engine** | `core/blocks/*.ts`, `core/graph.ts`, `core/engine.ts` (implements `EnginePort`) | `blocks/`, `patch.py` (render) |
-| **Ports** | `ports.ts`: `EnginePort` (driving), `CatalogSource`, `DiagnosticsSink` (driven) | `blocks.BlockContext` (supplies the catalog) |
-| **Driving adapters** | `adapters/worklet/processor.ts`, `adapters/offline.ts`, `adapters/node/cli.ts` | `scripts/`, notebooks, tests |
-| **Driven adapters** | `adapters/catalog-json.ts`, `adapters/wav.ts` | `Catalog.load/save`, `load_default_catalog`, `wav.py` |
+| **Ports** | `ports.ts`: `EnginePort` (driving). No driven ports: the catalog arrives as data in `load()`, and adapters poll `diagnostics()`. | `blocks.BlockContext` (supplies the catalog) |
+| **Driving adapters** | `adapters/worklet/processor.ts`, `adapters/worker/render-worker.ts`, `adapters/offline.ts`, `adapters/node/cli.ts`, the apps | `scripts/`, notebooks, tests |
+| **Other adapters** | `adapters/node/catalog-file.ts` (reads the catalog and patches from disk), `adapters/wav.ts` | `Catalog.load/save`, `load_default_catalog`, `wav.py` |
 | **Analysis** (lab only) | none | `analysis/`: spectra, Lyapunov, sweeps, catalog builder |
 
 Dependency rule: rings depend only inward. The core never imports an adapter, a platform API
@@ -71,10 +70,13 @@ function by function.
 - The browser calls `process()` with 128 frames at a time. The adapter calls
   `EnginePort.process(128, left, right)`.
 - Patch edits arrive as messages and are applied between quanta.
-- All buffers are preallocated when a patch is loaded, so nothing allocates in the audio
-  thread.
-- Cost (`docs/studies/cost.md`): one box is about 0.2–0.4% of a core at A3, so more than 100
-  boxes fit in real time.
+- All buffers, per-block input arrays and kernel arguments are preallocated when a patch is
+  loaded or edited, so `process()` allocates nothing. Loading a patch (parsing the catalog,
+  building blocks) runs between quanta on the audio thread; it takes about 2 ms.
+- Knob changes arrive as `setParams` edits and update the running block (ADR 0014).
+- Cost (`docs/studies/cost.md`, engine v0.3, M1): with per-system kernels one box is about
+  0.3–0.6% of a core at A3 and 2–5% at A7 (worst knob). The engine's generic RK4 kernel costs
+  about 1.5–2.7× more; per-system kernels are being added.
 
 ## Python lab package map
 

@@ -100,3 +100,18 @@ Rules:
   APIs leak into the engine, which makes a language swap a rewrite.
 - **Writing the core in C++ from the start.** Rejected for now (ADR 0002): a heavier
   toolchain, and harder for the owner to read. The seam above keeps the option open.
+
+## Implementation notes (2026-10-26)
+
+- The driven ports drawn above turned out unnecessary. The catalog reaches the core as data
+  in `EnginePort.load()` (reading the file is an adapter's job), and the adapters poll
+  `diagnostics()`. The unused `DiagnosticsSink` interface was removed from `ports.ts`.
+  The dependency rule is unchanged.
+- `test/architecture.test.ts` now tokenizes each core file. It catches side-effect and
+  dynamic imports, imports outside `src/core`, JSON imports, aliased globals, `Function`,
+  `Promise`, timers, `Date` and `Math.random`. Its own fixtures check that it catches 15
+  known bypasses.
+- Golden tests still read two internal values (each dynamical block's initial state and
+  the modulator outputs) through the TypeScript classes. A C++ core will need a data-only
+  probe on the port for those two checks (open item in `docs/REVIEW.md`).
+
