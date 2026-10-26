@@ -347,3 +347,60 @@ export function applyEdit(doc: PatchDocument, edit: PatchEdit): PatchDocument {
 function structuredCloneJson<T>(x: T): T {
   return JSON.parse(JSON.stringify(x)) as T;
 }
+
+/**
+ * The edits that turn `from` into `to` (block `ui` is ignored), so a running engine can
+ * follow an undo or redo without restarting the blocks that did not change. Order:
+ * disconnect, remove blocks (with their cables), add blocks, set params, connect. A block
+ * whose type changed is removed and added again. Applying the edits to `from` gives `to`
+ * up to the order of blocks and cables (which does not change the sound beyond rounding:
+ * a Sum adds its cables in order).
+ */
+export function diffPatch(from: PatchDocument, to: PatchDocument): PatchEdit[] {
+  const edits: PatchEdit[] = [];
+  const cableKey = (c: CableJson): string => `${c.from}→${c.to}`;
+  const fromCables = new Set(from.cables.map(cableKey));
+  const toCables = new Set(to.cables.map(cableKey));
+  const fromBlocks = new Map(from.blocks.map((b) => [b.id, b]));
+  const toBlocks = new Map(to.blocks.map((b) => [b.id, b]));
+  // Blocks that exist only in `from`, or whose type changed, are rebuilt from scratch.
+  const gone = (id: string): boolean => {
+    const t = toBlocks.get(id);
+    const f = fromBlocks.get(id);
+    return t === undefined || (f !== undefined && f.type !== t.type);
+  };
+  const isNew = (id: string): boolean => !fromBlocks.has(id) || gone(id);
+  for (const c of from.cables) {
+    const touchesGone = gone(splitRef(c.from)[0]) || gone(splitRef(c.to)[0]);
+    if (!toCables.has(cableKey(c)) && !touchesGone) {
+      edits.push({ op: "disconnect", from: c.from, to: c.to });
+    }
+  }
+  for (const b of from.blocks) if (gone(b.id)) edits.push({ op: "removeBlock", id: b.id });
+  for (const b of to.blocks) {
+    if (isNew(b.id))
+      edits.push({
+        op: "addBlock",
+        block: { id: b.id, type: b.type, params: { ...(b.params ?? {}) } },
+      });
+  }
+  for (const b of to.blocks) {
+    const f = fromBlocks.get(b.id);
+    if (f === undefined || isNew(b.id)) continue;
+    const before = f.params ?? {};
+    const after = b.params ?? {};
+    const params: Record<string, ParamValue | null> = {};
+    for (const name of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      const value = after[name] ?? null;
+      if (value !== (before[name] ?? null)) params[name] = value; // null = back to default
+    }
+    if (Object.keys(params).length > 0) edits.push({ op: "setParams", id: b.id, params });
+  }
+  for (const c of to.cables) {
+    const touchesNew = isNew(splitRef(c.from)[0]) || isNew(splitRef(c.to)[0]);
+    if (!fromCables.has(cableKey(c)) || touchesNew) {
+      edits.push({ op: "connect", from: c.from, to: c.to });
+    }
+  }
+  return edits;
+}

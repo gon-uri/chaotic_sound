@@ -1,5 +1,6 @@
+import type { ToWorklet } from "@chaotic-sound/engine/worklet/protocol";
 import { beforeEach, describe, expect, test } from "vitest";
-import { defaultPatch, layout, usePatchStore } from "../src/store/patchStore.ts";
+import { defaultPatch, layout, onEngineMessage, usePatchStore } from "../src/store/patchStore.ts";
 
 const store = usePatchStore.getState;
 
@@ -68,5 +69,41 @@ describe("patch store (every action validated by the engine)", () => {
     const pos = layout(noUi);
     expect(pos.get("mod1")!.x).toBeLessThan(pos.get("osc1")!.x);
     expect(pos.get("osc1")!.x).toBeLessThan(pos.get("out")!.x);
+  });
+});
+
+describe("undo and redo keep unchanged boxes playing", () => {
+  const sent: ToWorklet[] = [];
+  let unsubscribe: () => void = () => {};
+  beforeEach(() => {
+    sent.length = 0;
+    unsubscribe();
+    unsubscribe = onEngineMessage((m) => sent.push(m));
+  });
+
+  test("undoing a knob move sends a live setParams edit, not a reload", () => {
+    store().setParam("osc1", "param", 0.4);
+    sent.length = 0;
+    store().undo();
+    expect(sent).toEqual([
+      { type: "edit", edit: { op: "setParams", id: "osc1", params: { param: null } } },
+    ]);
+    sent.length = 0;
+    store().redo();
+    expect(sent).toEqual([
+      { type: "edit", edit: { op: "setParams", id: "osc1", params: { param: 0.4 } } },
+    ]);
+  });
+
+  test("undoing a new box and its cable removes just that box", () => {
+    store().addBlock("modulator", { x: 0, y: 0 });
+    store().edit({ op: "connect", from: "mod1.out", to: "osc1.param" });
+    sent.length = 0;
+    store().undo(); // the cable
+    store().undo(); // the box
+    expect(sent).toEqual([
+      { type: "edit", edit: { op: "disconnect", from: "mod1.out", to: "osc1.param" } },
+      { type: "edit", edit: { op: "removeBlock", id: "mod1" } },
+    ]);
   });
 });

@@ -22,6 +22,7 @@ export {
   type BlockJson,
   type BlockType,
   type CableJson,
+  diffPatch,
   isBlockType,
   normalizePatch,
   type ParamSpec,

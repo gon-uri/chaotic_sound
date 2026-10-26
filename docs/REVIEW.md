@@ -84,8 +84,9 @@ npm run playground   # then open http://localhost:5173, pick a patch, press Play
     - Boxes that are not edited are never reset.
 
     See spec §6.
-  - (d) An independent multi-lens review of the TS engine is running; its confirmed findings
-    will be fixed and summarized here.
+  - (d) An independent multi-lens review of the TS engine found 55 issues (one high: a test
+    that could not detect a broken live knob); 36 were confirmed by skeptics, none refuted
+    as harmful. The fixes and the decisions they needed are in **B5**.
   - (e) **CI** (`.github/workflows/ci.yml`) runs both test suites, but only on pull requests
     and on demand, to save Actions minutes on the private repo. Running it on every push is a
     one-line change. Do you want that?
@@ -119,6 +120,37 @@ npm run web   # then open http://localhost:5174
 - In short: the idea is good and very feasible. Design D (harmonic resynthesis) keeps each
   attractor's brightness at the tonal end, unlike a sine crossfade or plain comb filtering.
   Three questions for you are at the end of the note.
+
+## B5. Engine review fixes (spec v0.4, ADR 0014: Proposed)
+
+Decisions I made while fixing the review's findings. Each has a recommendation; nothing
+changes the sound of a patch played without live changes (the golden vectors are unchanged).
+
+1. **Every knob move is the same kind of edit.** `setParam` and an `edit` of `setParams`
+   behave identically. Knobs and pitch settings change inside the running box, other
+   settings recreate it, and invalid values roll back. *Recommendation: keep.*
+2. **Loads and edits are atomic.** A bad patch (from a file or the editor) raises an error
+   and the old patch keeps playing untouched. *Keep.*
+3. **Sum/Control Sum gain, Output volume and the amp-curve toggle now glide over 5 ms** after
+   a live change, instead of clicking. A steady value is applied exactly. *Keep.*
+4. **Guards in both engines.** The pitch smoother restarts from a new cable's first value. A
+   non-finite DC-blocker state is cleared and counted as a safety reset. The Output turns NaN
+   into silence. The catalog check now requires finite tables with σ, π, P > 0. *Keep.*
+5. **Patch files.** `{"foo": null}` is now an error in Python too (a typo stays a typo).
+   `"seed": 7.0` is accepted as 7 in Python too: JavaScript cannot tell them apart. *Keep.*
+6. **No allocation on the audio thread**, and a much stricter purity test for the core.
+7. **The unused `DiagnosticsSink` port was removed.** The adapters poll diagnostics instead
+   (ADR 0011 implementation notes).
+8. **Still open:** two golden checks (initial states, modulator outputs) read TypeScript
+   internals. A C++ core would need a small data-only probe on `EnginePort` for them. I would
+   add it when the C++ work starts.
+9. **In progress** (background, each verified independently): tests that catch the review's
+   surviving mutations, more golden fixtures (stereo, 44.1 kHz, defaults, envelopes),
+   Python edge cases of the patch format, and per-system integration kernels (about 1.5–2.7×
+   faster at high notes, bit-identical).
+
+New for you: `docs/dev/typescript-for-python.md`, a short guide to the TypeScript idioms used
+in the code, written for a Python programmer.
 
 ## C. What to listen to (`lab/outputs/demos/`)
 

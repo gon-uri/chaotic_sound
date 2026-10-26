@@ -9,6 +9,8 @@ import {
   applyEdit,
   type BlockJson,
   type BlockType,
+  checkAndOrder,
+  diffPatch,
   Engine,
   normalizePatch,
   type ParamValue,
@@ -45,6 +47,25 @@ export function validatePatch(doc: PatchDocument): PatchDocument {
   const normalized = normalizePatch(doc);
   new Engine({ maxFrames: 1 }).load(normalized, catalog, 48_000);
   return normalized;
+}
+
+/**
+ * Tell the engine to go from `from` to `to` (undo, redo). If every intermediate patch is
+ * valid, send the few edits that differ, so unchanged boxes keep playing; otherwise reload.
+ */
+function emitTransition(from: PatchDocument, to: PatchDocument): void {
+  const edits = diffPatch(from, to);
+  try {
+    let doc = from;
+    for (const e of edits) {
+      doc = applyEdit(doc, e);
+      checkAndOrder(doc);
+    }
+  } catch {
+    emit({ type: "load", patch: to, catalog: catalogDocument });
+    return;
+  }
+  for (const edit of edits) emit({ type: "edit", edit });
 }
 
 export function defaultPatch(): PatchDocument {
@@ -202,7 +223,7 @@ export const usePatchStore = create<PatchState>((set, get) => {
       lastKey = undefined;
       set({ doc: prev, past: past.slice(0, -1), future: [doc, ...future], error: null });
       save(prev);
-      emit({ type: "load", patch: prev, catalog: catalogDocument });
+      emitTransition(doc, prev);
     },
 
     redo: () => {
@@ -212,7 +233,7 @@ export const usePatchStore = create<PatchState>((set, get) => {
       lastKey = undefined;
       set({ doc: next, past: [...past, doc], future: future.slice(1), error: null });
       save(next);
-      emit({ type: "load", patch: next, catalog: catalogDocument });
+      emitTransition(doc, next);
     },
 
     clearError: () => set({ error: null }),

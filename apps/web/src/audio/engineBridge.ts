@@ -43,6 +43,13 @@ export async function play(): Promise<void> {
       await ctx.audioWorklet.addModule(processorUrl);
       node = new AudioWorkletNode(ctx, PROCESSOR_NAME, { outputChannelCount: [2] });
       node.connect(ctx.destination);
+      // An exception inside the processor stops it for good (the engine guards against this).
+      node.onprocessorerror = () => {
+        useAudioStore.setState({
+          playing: false,
+          error: "The audio engine stopped. Reload the page.",
+        });
+      };
       node.port.onmessage = (e: MessageEvent<FromWorklet>) => {
         const m = e.data;
         if (m.type === "error") useAudioStore.setState({ error: m.message });
