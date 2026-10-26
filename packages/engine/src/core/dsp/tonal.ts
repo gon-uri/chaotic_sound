@@ -10,11 +10,17 @@
 
 /** Harmonics resynthesized (they hold more than 99.99% of the power of every v1 system). */
 export const TONAL_HARMONICS = 8;
-/** Q of the two biquad sections of the 4th-order Butterworth band low-pass. */
+/** Q of the two state-variable sections of the 4th-order Butterworth band low-pass. */
 export const TONAL_Q1 = 1 / (2 * Math.cos(Math.PI / 8));
 export const TONAL_Q2 = 1 / (2 * Math.cos((3 * Math.PI) / 8));
 /** Mix law exponent: between equal amplitude (coherent) and equal power (incoherent). */
 export const TONAL_MIX_EXPONENT = 0.75;
+/**
+ * Phase normalization floor d_k = max(|v_k|, 0.1·(1 − τ)·√p_k): an incoherent band fades out
+ * instead of flipping its partial's phase (a tick). It vanishes at τ = 1, where 2 s of
+ * smoothing makes phase changes slow.
+ */
+export const TONAL_COHERENCE_FLOOR = 0.1;
 
 const TWO_PI = 2 * Math.PI;
 
@@ -22,9 +28,9 @@ const TWO_PI = 2 * Math.PI;
 export class TonalChannel {
   /** φ, n, f_last, τ_last, β_env, raw gain, tonal gain (NaN forces the first update). */
   readonly scalars = Float64Array.of(0, 0, Number.NaN, Number.NaN, 0, 0, 0);
-  /** Biquad coefficients [b0, b1, b2, a1, a2] of the two sections. */
-  readonly coef = new Float64Array(10);
-  /** Filter memories: per harmonic, (re, im) × (section 1, 2) × (s1, s2). */
+  /** Coefficients [a1, a2, a3] of the two state-variable sections. */
+  readonly coef = new Float64Array(6);
+  /** Filter states: per harmonic, (re, im) × (section 1, 2) × (s1, s2). */
   readonly filt = new Float64Array(8 * TONAL_HARMONICS);
   /** Per harmonic: smoothed power p and smoothed complex amplitude (Re v, Im v). */
   readonly bands = new Float64Array(3 * TONAL_HARMONICS);
@@ -54,18 +60,16 @@ export function tonal(
   for (let i = 0; i < n; i++) {
     const f = fA[i]!;
     if (f !== scalars[2]) {
-      // 4th-order Butterworth low-pass at f_a/2 (bilinear transform, prewarped).
+      // Butterworth low-pass at f_a/2: two TPT state-variable sections, which stay
+      // well-behaved when the cut-off moves (a biquad's memories overshoot when f_a drops).
       const g = Math.tan((Math.PI * (f * 0.5)) / fs);
-      const g2 = g * g;
       for (let j = 0; j < 2; j++) {
-        const q = j === 0 ? TONAL_Q1 : TONAL_Q2;
-        const d = 1 / (1 + g / q + g2);
-        const b0 = g2 * d;
-        coef[5 * j] = b0;
-        coef[5 * j + 1] = 2 * b0;
-        coef[5 * j + 2] = b0;
-        coef[5 * j + 3] = 2 * (g2 - 1) * d;
-        coef[5 * j + 4] = (1 - g / q + g2) * d;
+        const kappa = 1 / (j === 0 ? TONAL_Q1 : TONAL_Q2);
+        const a1 = 1 / (1 + g * (g + kappa));
+        const a2 = g * a1;
+        coef[3 * j] = a1;
+        coef[3 * j + 1] = a2;
+        coef[3 * j + 2] = g * a2;
       }
       scalars[2] = f;
     }
@@ -86,6 +90,7 @@ export function tonal(
     const beta = Math.max(scalars[4]!, 1 / (count + 1));
     scalars[1] = count + 1;
     const x = r[i]!;
+    const fl = TONAL_COHERENCE_FLOOR * (1 - t);
     let wr = 1;
     let wi = 0;
     let acc = 0;
@@ -102,10 +107,12 @@ export function tonal(
           const m = 8 * k + 4 * part + 2 * j;
           const s1 = filt[m]!;
           const s2 = filt[m + 1]!;
-          const yo = coef[5 * j]! * y + s1;
-          filt[m] = coef[5 * j + 1]! * y - coef[5 * j + 3]! * yo + s2;
-          filt[m + 1] = coef[5 * j + 2]! * y - coef[5 * j + 4]! * yo;
-          y = yo;
+          const v3 = y - s2;
+          const v1 = coef[3 * j]! * s1 + coef[3 * j + 1]! * v3;
+          const v2 = s2 + coef[3 * j + 1]! * s1 + coef[3 * j + 2]! * v3;
+          filt[m] = 2 * v1 - s1;
+          filt[m + 1] = 2 * v2 - s2;
+          y = v2;
         }
         if (part === 0) cRe = y;
         else cIm = y;
@@ -117,11 +124,12 @@ export function tonal(
       bands[3 * k] = pk;
       bands[3 * k + 1] = vr;
       bands[3 * k + 2] = vi;
-      const mag = Math.sqrt(vr * vr + vi * vi);
-      if (mag > 0) {
+      const sp = Math.sqrt(pk);
+      const den = Math.max(Math.sqrt(vr * vr + vi * vi), fl * sp);
+      if (den > 0) {
         let w = (0.45 * fs - (k + 1) * f) / (0.05 * fs);
         w = w < 0 ? 0 : w > 1 ? 1 : w;
-        acc += (w * 2 * Math.sqrt(pk) * (vr * wr - vi * wi)) / mag;
+        acc += (w * 2 * sp * (vr * wr - vi * wi)) / den;
       }
     }
     out[i] = scalars[5]! * x + scalars[6]! * acc;

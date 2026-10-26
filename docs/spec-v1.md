@@ -167,8 +167,8 @@ Per chunk and per sample i:
      observable, interpolated as in step 5.
    - **Tonality** (harmonic resynthesis, ADR 0015). It moves the energy of each harmonic band
      of r onto a clean partial, so the sound becomes harmonic while keeping the attractor's
-     own balance of harmonics. Per channel, with K = 8 harmonics (they hold more than
-     99.99% of the power of every v1 system):
+     own balance of harmonics. Per channel, with K = 8 harmonics (they hold more than 99.9%
+     of the power of every v1 system over its whole knob range):
      1. The fundamental actually heard: f_a = f with pitch lock, f_a = f·P(u_default)/P(u_s)
         without.
      2. Phase: φ_n = frac(φ_{n−1} + f_a/fs) with φ_{−1} = 0 (frac(v) = v − floor(v)), and
@@ -176,13 +176,14 @@ Per chunk and per sample i:
         computed by complex multiplication (a + ib)(c + id) = (ac − bd) + i(ad + bc).
      3. Band k (k = 1 … K): the complex baseband signal r·conj(w_k) = (r·Re w_k, −r·Im w_k),
         low-passed: each part goes through the same 4th-order Butterworth low-pass with
-        cut-off f_a/2. It is two biquad sections in transposed direct form II
-        (y = b0·x + s1; s1 = b1·x − a1·y + s2; s2 = b2·x − a2·y; zero initial state), from
-        the bilinear transform with prewarping: G = tan(π·(f_a/2)/fs), and for
-        Q ∈ {1/(2cos(π/8)), 1/(2cos(3π/8))} in that order, d = 1/(1 + G/Q + G²),
-        b0 = G²·d, b1 = 2·b0, b2 = b0, a1 = 2·(G² − 1)·d, a2 = (1 − G/Q + G²)·d. The
-        coefficients are recomputed whenever f_a differs from the previous sample's.
-        This gives c_k = (c_re, c_im).
+        cut-off f_a/2, built as two cascaded state-variable filters in trapezoidal (TPT)
+        form, which stay well-behaved when the cut-off moves. With G = tan(π·(f_a/2)/fs)
+        and, for Q ∈ {1/(2cos(π/8)), 1/(2cos(3π/8))} in that order, κ = 1/Q,
+        a1 = 1/(1 + G·(G + κ)), a2 = G·a1, a3 = G·a2, each section maps its input x and
+        states (s1, s2) (zero at reset) to its output v2:
+        v3 = x − s2; v1 = a1·s1 + a2·v3; v2 = s2 + a2·s1 + a3·v3; s1 ← 2·v1 − s1;
+        s2 ← 2·v2 − s2. The coefficients are recomputed whenever f_a differs from the
+        previous sample's; the states are kept. This gives c_k = (c_re, c_im).
      4. Band statistics, both smoothed with the same coefficient: the power
         p_k[n] = p_k[n−1] + β_n·(c_re² + c_im² − p_k[n−1]) and the complex amplitude
         v_k[n] = v_k[n−1] + β_n·(c_k − v_k[n−1]) (real and imaginary parts separately),
@@ -193,17 +194,21 @@ Per chunk and per sample i:
         mix gains of item 7 are recomputed whenever τ_s changes.
      5. Partial weight (stays below Nyquist): q_k = clip((0.45·fs − k·f_a)/(0.05·fs), 0, 1).
      6. The tonal signal: each band becomes one partial with the band's smoothed power and
-        smoothed phase, t = Σ_k q_k · 2·√p_k · (Re v_k·Re w_k − Im v_k·Im w_k) / |v_k|, with
-        |v_k| = √(Re v_k² + Im v_k²); a term with |v_k| = 0 is 0. (A sine A·cos(kθ + ψ) comes
-        out unchanged. Following the band's own slowly varying phase, instead of a fixed
-        phase kθ, keeps the partials from beating against the raw signal; ADR 0015.)
+        smoothed phase, t = Σ_k q_k · 2·√p_k · (Re v_k·Re w_k − Im v_k·Im w_k) / d_k, with
+        d_k = max(|v_k|, 0.1·(1 − τ_s)·√p_k) and |v_k| = √(Re v_k² + Im v_k²); a term with
+        d_k = 0 is 0. (A sine A·cos(kθ + ψ) comes out unchanged. Following the band's own slowly
+        varying phase, instead of a fixed phase kθ, keeps the partials from beating against
+        the raw signal. The floor, where |v_k|/√p_k is the band's phase coherence, makes an
+        incoherent band fade through zero instead of flipping its phase; it vanishes at
+        τ = 1, where 2 s of smoothing makes phase changes slow; ADR 0015.)
      7. Mix: m = (1 − τ_s)^0.75·r + τ_s^0.75·t. The exponent sits between equal amplitude
         (exact for a coherent sum) and equal power (exact for an incoherent one); it keeps
         the level of every v1 system within about ±1.2 dB.
 
-     Evaluate the sums and products left to right as written. When the `tonality` knob is 0
-     and no cable is connected, m = r and this step is skipped (the tonal state stays at its
-     reset value).
+     Evaluate the sums and products left to right as written. At the start of each chunk,
+     when the `tonality` knob is 0, no cable is connected and τ_s = 0, m = r and this step
+     is skipped for the chunk. When the step runs again after being skipped, both channels'
+     tonal state starts from its reset value.
    - Then y = g · m, with g from step 3, and the **DC blocker**
      y_out[n] = y[n] − y[n−1] + R·y_out[n−1], with R = exp(−2π·5/fs), zero initial state and
      flush-to-zero.
@@ -215,8 +220,10 @@ Per chunk and per sample i:
    - On a reset, the state goes back to the perturbed initial condition of step 9, and a
      `safety_resets` counter is incremented and reported as diagnostics.
    - Defense in depth: if a DC-blocker state (step 7) becomes non-finite after a chunk, both
-     channels' DC-blocker states are set to 0 and `safety_resets` is incremented. (With a
-     valid catalog this cannot happen; it keeps one bad sample from silencing a box forever.)
+     channels' DC-blocker states are set to 0 and `safety_resets` is incremented. Likewise,
+     if a channel's tonal band statistics (p_k, v_k) become non-finite, that channel's
+     tonal state is reset and `safety_resets` is incremented. (With a valid catalog this
+     cannot happen; it keeps one bad sample from silencing a box, or a partial, forever.)
 9. **Initial condition and seeding (portable).**
    - seed = CRC-32 (IEEE 802.3, as in zlib) of the block id's UTF-8 bytes, ANDed with
      0x7FFFFFFF, unless `seed` is given.
@@ -325,7 +332,8 @@ connected, out = 0. gain = 0.5 averages two inputs.
     bit-identical to the reference). For `volume` the curve is applied to the gliding
     knob value. For `amp_curve` the glide blends the two laws:
     g = m·a_s^1.661 + (1 − m)·a_s, with m going from 1 to 0 or back.
-  - Turning `tonality` up from 0 live starts the tonal state from its reset value.
+  - Turning `tonality` to 0 live glides out over 5 ms like any knob; the step is skipped only
+    once τ_s has reached 0. Turning it up again starts the tonal state from its reset value.
   - `note`, `cents`, `pitch_min`, `pitch_max` and `pitch_lock` take effect from the next
     chunk. They change only how fast the ODE runs, so they do not click.
   - Other settings (`system`, `observable`, `observable_right`, `seed`, modulator settings)

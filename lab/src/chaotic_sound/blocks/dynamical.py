@@ -32,6 +32,7 @@ from chaotic_sound.blocks.base import (
 from chaotic_sound.catalog import CatalogEntry
 from chaotic_sound.dsp import (
     AMP_EXPONENT,
+    TONAL_COHERENCE_FLOOR,
     TONAL_MIX_EXPONENT,
     TONAL_Q,
     dc_block,
@@ -188,6 +189,7 @@ class Dynamical(Block):
         self._dc_state = np.zeros((2, 2))
         self._t_state: np.ndarray | None = None  # tonality smoother: first control value
         self._tonal_states = [tonal_state(), tonal_state()]  # one per channel (spec §4.2 step 7)
+        self._tonal_was_on = False
         self._period_unlocked = float(self.entry.period(self.entry.u_default))
         self.resets = 0
 
@@ -217,7 +219,7 @@ class Dynamical(Block):
         out = np.empty_like(r)
         scalars, coef, filt, bands = self._tonal_states[channel]
         tonal(r, f_a, tau, self.sample_rate, scalars, coef, filt, bands, *TONAL_Q,
-              TONAL_MIX_EXPONENT, out)  # fmt: skip
+              TONAL_MIX_EXPONENT, TONAL_COHERENCE_FLOOR, out)  # fmt: skip
         return out
 
     def process(self, n: int, inputs: Mapping[str, Signal | None]) -> dict[str, Signal]:
@@ -260,9 +262,14 @@ class Dynamical(Block):
         t_raw = np.full(n, self.params.tonality) if t_in is None else t_in
         if self._t_state is None:
             self._t_state = np.array([t_raw[0]])
+        # Skip the step only while the knob is 0, no cable is connected and τ_s is 0 (decided
+        # at the chunk start, so a glide to 0 finishes before the step switches off).
+        tonal_on = t_in is not None or self.params.tonality > 0.0 or self._t_state[0] != 0.0
+        if tonal_on and not self._tonal_was_on:
+            self._tonal_states = [tonal_state(), tonal_state()]  # restart from the reset value
+        self._tonal_was_on = tonal_on
         tau = np.empty(n)
         one_pole(t_raw, self._t_state, self._alpha, tau)
-        tonal_on = t_in is not None or self.params.tonality > 0.0
         f_a = freq if self.params.pitch_lock else freq * self._period_unlocked / entry.period(u)
 
         r_left = self._normalized(traj, self.observable, u)
@@ -281,6 +288,10 @@ class Dynamical(Block):
             # Defense in depth: a non-finite sample would stay in the blocker's memory forever.
             self._dc_state[:] = 0.0
             self.resets += 1
+        for ch in range(2):  # same for a channel's tonal band statistics (spec §4.2 step 8)
+            if not np.all(np.isfinite(self._tonal_states[ch][3])):
+                self._tonal_states[ch] = tonal_state()
+                self.resets += 1
         return {"out": out}
 
     def diagnostics(self) -> dict[str, int]:

@@ -8,7 +8,14 @@ from scipy.signal import welch
 
 from chaotic_sound.blocks import BlockContext, Dynamical
 from chaotic_sound.blocks.dynamical import TONALITY_DEFAULT
-from chaotic_sound.dsp import TONAL_HARMONICS, TONAL_MIX_EXPONENT, TONAL_Q, tonal, tonal_state
+from chaotic_sound.dsp import (
+    TONAL_COHERENCE_FLOOR,
+    TONAL_HARMONICS,
+    TONAL_MIX_EXPONENT,
+    TONAL_Q,
+    tonal,
+    tonal_state,
+)
 from chaotic_sound.systems import list_systems
 
 FS = 48_000
@@ -27,11 +34,14 @@ def run(block: Dynamical, seconds: float, chunk: int = 512, inputs=None) -> np.n
     return out
 
 
-def kernel(r: np.ndarray, f: float, tau: float) -> np.ndarray:
+def kernel(r, f, tau, floor: float = TONAL_COHERENCE_FLOOR) -> np.ndarray:
+    """Run the kernel on r with a constant or per-sample frequency and tonality."""
     out = np.empty_like(r)
+    f_a = np.broadcast_to(np.asarray(f, dtype=float), r.shape).copy()
+    t = np.broadcast_to(np.asarray(tau, dtype=float), r.shape).copy()
     scalars, coef, filt, bands = tonal_state()
-    tonal(r, np.full(r.size, f), np.full(r.size, tau), float(FS), scalars, coef, filt, bands,
-          *TONAL_Q, TONAL_MIX_EXPONENT, out)  # fmt: skip
+    tonal(r, f_a, t, float(FS), scalars, coef, filt, bands, *TONAL_Q, TONAL_MIX_EXPONENT,
+          floor, out)  # fmt: skip
     return out
 
 
@@ -169,6 +179,71 @@ def test_tonality_stays_in_tune(context: BlockContext, system: str) -> None:
     assert abs(default) < (14.0 if system == "lorenz" else 4.0), (system, default)
 
 
+@pytest.mark.parametrize(("f_hi", "f_lo"), [(4186.0, 55.0), (2093.0, 110.0), (880.0, 220.0)])
+def test_a_falling_pitch_does_not_overshoot(f_hi: float, f_lo: float) -> None:
+    """The band filter is modulation-safe (TPT state-variable form): when f_a drops, the
+    output stays at the steady level. The previous biquad form peaked 23x higher here."""
+    n = 2 * FS
+    f = np.where(np.arange(n) < FS, f_hi, f_lo)
+    phase = np.cumsum(f / FS)
+    r = 0.35 * np.cos(2 * np.pi * phase)
+    y = kernel(r, f, 0.3)
+    steady = np.max(np.abs(y[FS // 2 : FS]))
+    assert np.max(np.abs(y[FS:])) < 1.3 * steady
+
+
+def high_band_bursts(y: np.ndarray) -> int:
+    """Number of 5 ms windows whose energy above 3 kHz is > 20 dB over the median (ticks)."""
+    from scipy.signal import butter, sosfilt
+
+    hp = sosfilt(butter(4, 3000, "highpass", fs=FS, output="sos"), y)
+    w = 240
+    e = np.mean(hp[: hp.size // w * w].reshape(-1, w) ** 2, axis=1) + 1e-30
+    return int(np.sum(10 * np.log10(e / np.median(e)) > 20))
+
+
+def test_incoherent_bands_fade_instead_of_ticking(context: BlockContext) -> None:
+    """The coherence floor removes the phase flips of near-zero bands (heard as ticks)."""
+    raw = run(Dynamical("v", context=context, system="chua", tonality=0.0), 4.0)[FS:, 0]
+    r = raw / 1.0  # the raw output stands in for r (same shape; the test is relative)
+    ticks = high_band_bursts(kernel(r, 220.0, 0.3)[FS:])
+    ticks_unfloored = high_band_bursts(kernel(r, 220.0, 0.3, floor=0.0)[FS:])
+    assert ticks <= max(5, ticks_unfloored // 5), (ticks, ticks_unfloored)
+
+
+def test_turning_tonality_off_glides_and_restarts_fresh(context: BlockContext) -> None:
+    """A cable at 0.7 removed while the knob is 0: τ_s glides out (no click), the step is
+    skipped once τ_s = 0, and switching on again starts from the reset state."""
+    block = Dynamical("v", context=context, system="rikitake", tonality=0.0)
+    block.reset(FS)
+    chunk = 512
+    ys = []
+    for i in range(400):
+        ins = {"tonality": np.full(chunk, 0.7)} if i < 100 or i >= 300 else {}
+        ys.append(block.process(chunk, ins)["out"][:, 0])
+    y = np.concatenate(ys)
+    steps = np.abs(np.diff(y))
+    normal = np.percentile(steps[FS // 2 : 100 * chunk], 99.9)
+    assert np.max(steps[100 * chunk - 10 : 110 * chunk]) < 2 * normal  # no click at the switch
+    # In between, τ_s reached exactly 0 and the step was skipped; when the cable came back
+    # (chunk 300) the tonal state started from its reset value: 100 chunks counted since.
+    assert block._tonal_states[0][0][1] == 100 * chunk
+
+
+def test_a_non_finite_band_state_is_reset_and_counted(context: BlockContext) -> None:
+    block = Dynamical("v", context=context, system="lorenz")
+    block.reset(FS)
+    block.process(512, {})
+    block._tonal_states[0][3][0] = np.nan
+    block.process(512, {})  # the NaN spreads through this chunk, then the guard resets it
+    # Counted once for the tonal state, once for the DC blocker the NaN reached.
+    assert block.diagnostics()["safety_resets"] >= 1
+    assert np.all(np.isfinite(block._tonal_states[0][3]))
+    out = block.process(512, {})["out"]
+    assert np.all(np.isfinite(out))
+
+
 def test_constants() -> None:
     assert TONAL_HARMONICS == 8
     assert TONAL_MIX_EXPONENT == 0.75
+    assert TONAL_COHERENCE_FLOOR == 0.1

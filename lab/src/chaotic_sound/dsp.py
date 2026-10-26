@@ -30,7 +30,12 @@ AMP_EXPONENT = 1.0 / (2.0 * math.log10(2.0))
 TONAL_HARMONICS = 8
 """Harmonics resynthesized by the tonality step (spec §4.2 step 7, ADR 0015)."""
 TONAL_Q = (1.0 / (2.0 * math.cos(math.pi / 8.0)), 1.0 / (2.0 * math.cos(3.0 * math.pi / 8.0)))
-"""Q of the two biquad sections of the 4th-order Butterworth band low-pass."""
+"""Q of the two state-variable sections of the 4th-order Butterworth band low-pass."""
+TONAL_COHERENCE_FLOOR = 0.1
+"""Phase normalization floor d_k = max(|v_k|, 0.1·(1 − τ)·√p_k): an incoherent band fades
+out instead of flipping its partial's phase (spec §4.2 step 7, item 6). It scales with
+(1 − τ) because fast phase flips need the short smoothing of low tonality; at τ = 1 (2 s
+smoothing) directions change slowly and a floor would only lower the level."""
 TONAL_MIX_EXPONENT = 0.75
 """Mix law m = (1 − τ)^0.75·r + τ^0.75·t: between equal amplitude (right for coherent sums)
 and equal power (right for incoherent ones); keeps every v1 system within about ±1.2 dB."""
@@ -112,15 +117,17 @@ def tonal_state(n_harmonics: int = TONAL_HARMONICS) -> tuple[np.ndarray, ...]:
     """Fresh state of one tonality channel: (scalars, coefficients, filter memories, bands).
 
     ``scalars`` = [φ, n, f_last, τ_last, β_env, raw gain, tonal gain]; NaN in f_last and
-    τ_last forces the first coefficient computation. ``bands`` holds, per harmonic k, the
-    smoothed power p_k and the smoothed complex amplitude v_k: [p, Re v, Im v] × K.
+    τ_last forces the first coefficient computation. ``coef`` = [a1, a2, a3] of the two
+    state-variable sections. ``filt`` holds their states (s1, s2) per harmonic, part (re,
+    im) and section. ``bands`` holds, per harmonic k, the smoothed power p_k and the
+    smoothed complex amplitude v_k: [p, Re v, Im v] × K.
     """
     scalars = np.array([0.0, 0.0, np.nan, np.nan, 0.0, 0.0, 0.0])
-    return scalars, np.zeros(10), np.zeros(8 * n_harmonics), np.zeros(3 * n_harmonics)
+    return scalars, np.zeros(6), np.zeros(8 * n_harmonics), np.zeros(3 * n_harmonics)
 
 
 @njit(cache=True)
-def tonal(r, f_a, tau, fs, scalars, coef, filt, bands, q1, q2, mix_exp, out):  # type: ignore[no-untyped-def]
+def tonal(r, f_a, tau, fs, scalars, coef, filt, bands, q1, q2, mix_exp, floor, out):  # type: ignore[no-untyped-def]
     """Harmonic resynthesis (spec §4.2 step 7, "Tonality"), one channel, ``n = len(r)`` samples.
 
     ``r`` is the level-normalized signal, ``f_a`` the fundamental actually heard (Hz) and
@@ -133,18 +140,15 @@ def tonal(r, f_a, tau, fs, scalars, coef, filt, bands, q1, q2, mix_exp, out):  #
     two_pi = 2.0 * math.pi
     for i in range(r.shape[0]):
         f = f_a[i]
-        if f != scalars[2]:  # 4th-order Butterworth low-pass at f_a/2 (bilinear, prewarped)
+        if f != scalars[2]:  # Butterworth low-pass at f_a/2: two TPT state-variable sections
             g = math.tan(math.pi * (f * 0.5) / fs)
-            g2 = g * g
             for j in range(2):
-                q = q1 if j == 0 else q2
-                d = 1.0 / (1.0 + g / q + g2)
-                b0 = g2 * d
-                coef[5 * j] = b0
-                coef[5 * j + 1] = 2.0 * b0
-                coef[5 * j + 2] = b0
-                coef[5 * j + 3] = 2.0 * (g2 - 1.0) * d
-                coef[5 * j + 4] = (1.0 - g / q + g2) * d
+                kappa = 1.0 / (q1 if j == 0 else q2)
+                a1 = 1.0 / (1.0 + g * (g + kappa))
+                a2 = g * a1
+                coef[3 * j] = a1
+                coef[3 * j + 1] = a2
+                coef[3 * j + 2] = g * a2
             scalars[2] = f
         t = tau[i]
         if t != scalars[3]:
@@ -162,6 +166,7 @@ def tonal(r, f_a, tau, fs, scalars, coef, filt, bands, q1, q2, mix_exp, out):  #
         beta = max(scalars[4], 1.0 / (count + 1.0))
         scalars[1] = count + 1.0
         x = r[i]
+        fl = floor * (1.0 - t)
         wr = 1.0
         wi = 0.0
         acc = 0.0
@@ -178,15 +183,12 @@ def tonal(r, f_a, tau, fs, scalars, coef, filt, bands, q1, q2, mix_exp, out):  #
                     m = 8 * k + 4 * part + 2 * j
                     s1 = filt[m]
                     s2 = filt[m + 1]
-                    b0 = coef[5 * j]
-                    b1 = coef[5 * j + 1]
-                    b2 = coef[5 * j + 2]
-                    a1 = coef[5 * j + 3]
-                    a2 = coef[5 * j + 4]
-                    yo = b0 * y + s1
-                    filt[m] = b1 * y - a1 * yo + s2
-                    filt[m + 1] = b2 * y - a2 * yo
-                    y = yo
+                    v3 = y - s2
+                    v1 = coef[3 * j] * s1 + coef[3 * j + 1] * v3
+                    v2 = s2 + coef[3 * j + 1] * s1 + coef[3 * j + 2] * v3
+                    filt[m] = 2.0 * v1 - s1
+                    filt[m + 1] = 2.0 * v2 - s2
+                    y = v2
                 if part == 0:
                     c_re = y
                 else:
@@ -198,9 +200,10 @@ def tonal(r, f_a, tau, fs, scalars, coef, filt, bands, q1, q2, mix_exp, out):  #
             bands[3 * k] = pk
             bands[3 * k + 1] = vr
             bands[3 * k + 2] = vi
-            mag = math.sqrt(vr * vr + vi * vi)
-            if mag > 0.0:
+            sp = math.sqrt(pk)
+            den = max(math.sqrt(vr * vr + vi * vi), fl * sp)
+            if den > 0.0:
                 w = (0.45 * fs - (k + 1.0) * f) / (0.05 * fs)
                 w = 0.0 if w < 0.0 else (1.0 if w > 1.0 else w)
-                acc += w * 2.0 * math.sqrt(pk) * (vr * wr - vi * wi) / mag
+                acc += w * 2.0 * sp * (vr * wr - vi * wi) / den
         out[i] = scalars[5] * x + scalars[6] * acc

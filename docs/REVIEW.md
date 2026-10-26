@@ -136,12 +136,16 @@ demos. All demos now play at the default 0.3.
 2. **At 1 the tone is steady but alive**, not a static stack of sines: the partials keep the
    attractor's slow phase wander (90–100% harmonic).
 3. **Mix law** (1 − τ)^0.75 / τ^0.75: level within about ±1.2 dB across systems and settings.
-4. **Lorenz at intermediate settings reads up to about 10 cents sharp**, because of its broad
-   spectrum. The other systems stay within 3 cents. I found no variant that fixes this without
+4. **Lorenz at intermediate settings reads about 8–10 cents sharp**, because of its broad
+   spectrum. The other systems stay within about 6 cents (10 seeds). I found no variant that fixes this without
    bringing the beating back.
-5. **8 harmonics** (over 99.99% of the power for all five systems). Cost: about 0.9% of a
-   core per voice.
-6. **Open:** a second "brightness" knob (idea note, question 2).
+5. **8 harmonics** (over 99.9% of the power for all five systems over the whole knob
+   range). Cost: about 0.9% of a core per voice.
+6. **An independent verification found and I fixed** an overshoot after fast pitch drops
+   (the band filter is now modulation-safe), a click when turning tonality to 0, sporadic
+   ticks at the default setting (a coherence floor), and stale state when switching it on
+   again. Details: ADR 0015, "Fixes after the independent verification".
+7. **Open:** a second "brightness" knob (idea note, question 2).
 
 ## C. What to listen to (`lab/outputs/demos/`)
 

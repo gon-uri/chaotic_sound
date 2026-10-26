@@ -37,6 +37,13 @@ export const IC_PERTURBATION = 1e-6;
 /** Perceptual amp curve: g = a^(1/(2·log10 2)), so each halving of a is −10 dB. */
 export const AMP_EXPONENT = 1 / (2 * Math.log10(2));
 
+/** True if every value is finite (their sum is finite; cheap enough once per chunk). */
+function finiteSum(a: Float64Array): boolean {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += a[i]!;
+  return Number.isFinite(s);
+}
+
 /** Documented default of a dynamical parameter (BLOCK_SPECS). */
 const def = (name: string): ParamValue | undefined => defaultParam("dynamical", name);
 
@@ -104,6 +111,7 @@ export class Dynamical implements BlockRuntime {
   private uInit = false;
   private qInit = false;
   private tInit = false;
+  private tonalWasOn = false;
   private alpha = 0;
   private dcR = 0;
   private periodUnlocked = 0;
@@ -267,6 +275,7 @@ export class Dynamical implements BlockRuntime {
     this.uInit = false;
     this.qInit = false;
     this.tInit = false;
+    this.tonalWasOn = false;
     this.tonalLeft.reset();
     this.tonalRight.reset();
     this.aState[0] = 0; // amp starts at 0: every box fades in over a few ms
@@ -340,8 +349,15 @@ export class Dynamical implements BlockRuntime {
       this.tState[0] = tRaw[0]!;
       this.tInit = true;
     }
+    // Skip the step only while the knob is 0, no cable is connected and τ_s is 0 (decided
+    // at the chunk start, so a glide to 0 finishes before the step switches off).
+    const tonalOn = tIn !== null || this.knobTonality > 0 || this.tState[0] !== 0;
+    if (tonalOn && !this.tonalWasOn) {
+      this.tonalLeft.reset(); // turning tonality on again starts from the reset value
+      this.tonalRight.reset();
+    }
+    this.tonalWasOn = tonalOn;
     onePole(tRaw, this.tState, this.alpha, this.tau, n);
-    const tonalOn = tIn !== null || this.knobTonality > 0;
     if (tonalOn) {
       for (let i = 0; i < n; i++) {
         // The fundamental actually heard: f with pitch lock, f·P(u_default)/P(u) without.
@@ -365,6 +381,15 @@ export class Dynamical implements BlockRuntime {
     if (!Number.isFinite(dc)) {
       this.dcLeft.fill(0);
       this.dcRight.fill(0);
+      this.resets++;
+    }
+    // Same for each channel's tonal band statistics (spec §4.2 step 8).
+    if (!finiteSum(this.tonalLeft.bands)) {
+      this.tonalLeft.reset();
+      this.resets++;
+    }
+    if (!finiteSum(this.tonalRight.bands)) {
+      this.tonalRight.reset();
       this.resets++;
     }
   }

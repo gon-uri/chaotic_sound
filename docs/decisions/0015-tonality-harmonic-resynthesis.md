@@ -21,16 +21,24 @@ A `tonality` knob and control input on the dynamical box, default **0.3**, smoot
 `amp`. Per channel:
 
 1. Split the level-normalized signal r into 8 harmonic bands [k − ½, k + ½]·f_a. Each band
-   is heterodyned to baseband and low-passed by a 4th-order Butterworth at f_a/2. f_a is
-   the fundamental actually heard; it differs from the note when pitch lock is off.
+   is heterodyned to baseband and low-passed by a 4th-order Butterworth at f_a/2, built from
+   two state-variable filters in trapezoidal (TPT) form so it stays well-behaved when f_a
+   moves. f_a is the fundamental actually heard; it differs from the note when pitch lock
+   is off.
 2. Smooth each band's power and complex amplitude with a time constant from 2 ms (τ = 0) to
    2 s (τ = 1), starting as a running mean so the sound appears at once.
 3. Replace each band by one partial with the band's smoothed power and **the band's smoothed
    phase**, and mix: m = (1 − τ)^0.75·r + τ^0.75·t. The amp curve and the DC blocker
    follow, so amp envelopes are never smeared by the smoothing.
+4. A **coherence floor**: the phase is normalized by max(|v_k|, 0.1·(1 − τ)·√p_k), so a band
+   whose smoothed amplitude passes near zero fades out instead of flipping its partial's
+   phase in one sample, which would tick.
+5. The step is skipped only once the smoothed tonality has reached 0 (so turning it down
+   never clicks), and it restarts from a clean state when it comes back on.
 
-Eight harmonics hold more than 99.99% of the power of every v1 system at any note. Time
-rescaling keeps the spectral shape fixed in units of f₀, so this holds at every note.
+Eight harmonics hold more than 99.9% of the power of every v1 system over its whole knob
+range (more than 99.99% at the default knob). Time rescaling keeps the spectral shape fixed
+in units of f₀, so this holds at every note.
 
 ## Why the phase tracking (a refinement of the prototype)
 
@@ -40,14 +48,30 @@ to θ. At τ = 0.3 the 50 ms level wobbled by 2–4 dB (Rössler 3.3 dB), agains
 the raw attractor. Letting each partial follow its band's smoothed phase removes the beating:
 the wobble stays at 0.3–1.6 dB.
 
-Measured on all five systems at A3 (`lab/tests/test_tonality.py`; scratch study in the
-session notes):
+Measured on all five systems at A3, over 10 seeds (`lab/tests/test_tonality.py`, the
+design study and the independent verification):
 
 | | raw (τ = 0) | τ = 0.3 (default) | τ = 1 |
 |---|---|---|---|
-| Harmonic share of the power | 0.23–0.80 | 0.33–0.91 | 0.96–1.00 |
-| Level change | | within ±1.2 dB | −1.1 … −0.1 dB |
-| Pitch error (catalog estimator) | ≤ 5 c | ≤ 3 c; Lorenz up to ≈ 10 c sharp | ≤ 2 c |
+| Harmonic share of the power | 0.18–0.80 | 0.33–0.91 | 0.88–1.00 (Lorenz 0.88–0.99) |
+| Level change | | within ±1.2 dB | within ±1.2 dB |
+| Pitch error (catalog estimator) | ≤ 5 c | ≤ 6 c; Lorenz about 8–10 c sharp | ≤ 5 c |
+
+## Fixes after the independent verification (2026-10-26)
+
+A third implementation written from the spec alone, and an audio and real-time review,
+found (all confirmed, none refuted):
+
+| Finding | Fix |
+|---|---|
+| **High:** after a fast pitch drop (a live note change, a pitch cable) the biquads' memories overshot: up to +21 dB and output clipping (C8 → A1), and +13 dB held for 1–2 s at τ = 1 | Band filter rebuilt as TPT state-variable sections (same response, modulation-safe). C8 → A1 now stays within 1.3× the steady level |
+| Turning tonality to 0 live stepped from the mix to the raw signal in one sample (a click) | The step is skipped only once τ_s = 0 |
+| Phase flips of near-zero bands at the default 0.3 (sporadic ticks, Chua and Duffing) | Coherence floor 0.1·(1 − τ)·√p_k; ticks back to the raw attractor's level, no level change at τ = 1 |
+| Turning tonality on again resumed stale state; a non-finite band state silently removed a partial | Fresh state on every switch-on; the safety guard now also covers the tonal state |
+| The ADR's ranges came from one seed; the "99.99%" claim failed at the knob ends | Table and claim restated over 10 seeds and the whole range (above) |
+
+Each fix has a test that fails on the previous code (`lab/tests/test_tonality.py`,
+`packages/engine/test/tonality.test.ts`). Golden vectors were regenerated.
 
 ## Consequences
 

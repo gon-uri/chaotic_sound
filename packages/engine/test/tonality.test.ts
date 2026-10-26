@@ -65,3 +65,62 @@ describe("tonality", () => {
     expect(knob.patch!.blocks[1]!.params!.tonality).toBe(0.9);
   });
 });
+
+describe("tonality live (verification findings, ADR 0015)", () => {
+  const steady = (y: Float64Array, from: number, to: number): number => {
+    let m = 0;
+    for (let i = from; i < to; i++) m = Math.max(m, Math.abs(y[i]!));
+    return m;
+  };
+  const maxStep = (y: Float64Array, from: number, to: number): number => {
+    let m = 0;
+    for (let i = Math.max(1, from); i < to; i++) m = Math.max(m, Math.abs(y[i]! - y[i - 1]!));
+    return m;
+  };
+
+  test("a live note drop C8 → A1 does not overshoot (modulation-safe band filter)", () => {
+    for (const system of ["lorenz", "rikitake"]) {
+      const e = new Engine({ maxFrames: 128 });
+      e.load(voice({ system, note: "C8" }), catalog, FS);
+      const before = render(e, FS);
+      e.setParam("osc", "note", "A1");
+      const after = render(e, FS / 2);
+      // Before the fix the box peaked 10× its steady level and the Output clipped.
+      expect(steady(after, 0, after.length)).toBeLessThan(1.5 * steady(before, FS / 2, FS));
+    }
+  });
+
+  test("turning tonality to 0 live glides out without a click", () => {
+    const e = new Engine({ maxFrames: 128 });
+    e.load(voice({ system: "chua", note: "A2", tonality: 0.7 }), catalog, FS);
+    const a = render(e, FS);
+    const normal = maxStep(a, FS / 2, FS);
+    e.setParam("osc", "tonality", 0);
+    const b = render(e, FS);
+    expect(maxStep(b, 0, 2048)).toBeLessThan(2 * normal);
+  });
+
+  test("switching tonality off and on again restarts the tonal state", () => {
+    const e = new Engine({ maxFrames: 128 });
+    e.load(voice({ tonality: 0.5 }), catalog, FS);
+    render(e, FS / 2);
+    e.setParam("osc", "tonality", 0);
+    render(e, FS); // τ_s reaches exactly 0 and the step is skipped
+    e.setParam("osc", "tonality", 0.5);
+    render(e, 1280);
+    const block = e.block("osc") as unknown as { tonalLeft: { scalars: Float64Array } };
+    expect(block.tonalLeft.scalars[1]).toBe(1280); // counted from 0 since it came back on
+  });
+
+  test("a non-finite band state is reset and counted", () => {
+    const e = new Engine({ maxFrames: 128 });
+    e.load(voice({}), catalog, FS);
+    render(e, 512);
+    const block = e.block("osc") as unknown as { tonalLeft: { bands: Float64Array } };
+    block.tonalLeft.bands[0] = Number.NaN;
+    render(e, 512);
+    expect(e.diagnostics().osc!.safety_resets).toBeGreaterThanOrEqual(1);
+    const y = render(e, 512);
+    expect(y.every((v) => Number.isFinite(v))).toBe(true);
+  });
+});
