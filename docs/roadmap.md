@@ -54,7 +54,7 @@ Goal: prove that "tuned chaos" works and sounds interesting before building any 
 - [ ] Level meters and live scopes on the boxes; a mobile layout; an end-to-end browser test.
 - [x] Static build that runs from any sub-path; a manual GitHub Pages deploy workflow
       (`.github/workflows/pages.yml`).
-- [ ] First public deployment (the owner enables Pages and decides on visibility).
+- [x] First public deployment: <https://gon-uri.github.io/chaotic_sound/> (2026-10-26).
 
 ## Phase 4: Learn-more pages
 

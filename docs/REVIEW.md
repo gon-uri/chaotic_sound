@@ -193,13 +193,9 @@ top of the tonality work.
 
 ## B8. Hosting
 
-- **Deploy workflow added**, manual only (`.github/workflows/pages.yml`). Steps: checkout, Node
-  24, `npm ci`, checks and tests, build, deploy to GitHub Pages.
-- **Your steps:**
-  1. Settings → Pages → Source: "GitHub Actions";
-  2. decide on visibility (on a private repository Pages needs a paid plan, and the site is
-     public to anyone with the link);
-  3. Actions → "Deploy to GitHub Pages" → Run workflow.
+- **Live** at <https://gon-uri.github.io/chaotic_sound/> (first deploy 2026-10-26, from the
+  manual workflow `.github/workflows/pages.yml`: checks and tests, build, deploy). To update the
+  site after changes: Actions → "Deploy to GitHub Pages" → Run workflow.
 - **Tested locally under `/chaotic_sound/`** (the Pages sub-path): the editor loads, plays and
   opens Learn-more pages. Before sharing widely: the system pages are marked as unreviewed
   drafts, and the project has no license yet (section E).
